@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
 ENV BUILD_VIRTUAL_ENV=/opt/fraudshield-build-venv \
     VIRTUAL_ENV=/opt/fraudshield-venv \
@@ -26,7 +26,7 @@ RUN "$BUILD_VIRTUAL_ENV/bin/python" -m build --wheel --no-isolation --outdir /bu
 
 
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 
 LABEL org.opencontainers.image.title="FraudShield Backend" \
       org.opencontainers.image.version="3.0.0" \
