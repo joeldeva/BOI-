@@ -21,7 +21,9 @@ COPY pyproject.toml README.md LICENSE ./
 COPY fraudshield ./fraudshield
 
 RUN "$BUILD_VIRTUAL_ENV/bin/python" -m build --wheel --no-isolation --outdir /build/dist \
+    && "$VIRTUAL_ENV/bin/python" -m pip install --upgrade pip setuptools wheel \
     && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir /build/dist/*.whl ".[production,analysis]"
+
 
 
 FROM python:3.12-slim-bookworm AS runtime
