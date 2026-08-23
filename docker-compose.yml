@@ -1,0 +1,65 @@
+x-fraudshield-development: &fraudshield-development
+  FRAUDSHIELD_ENV: development
+  FRAUDSHIELD_AUTH_MODE: disabled
+  FRAUDSHIELD_DATA_DIR: /var/lib/fraudshield
+  FRAUDSHIELD_STORAGE_BACKEND: local
+  FRAUDSHIELD_DOCS_ENABLED: "true"
+  FRAUDSHIELD_DEMO_ENABLED: "true"
+  FRAUDSHIELD_LEGACY_API_ENABLED: "false"
+  FRAUDSHIELD_INLINE_ANALYSIS_ENABLED: "false"
+  FRAUDSHIELD_METRICS_ENABLED: "false"
+  FRAUDSHIELD_LLM_PROVIDER: ${FRAUDSHIELD_LLM_PROVIDER:-disabled}
+  FRAUDSHIELD_LLM_API_KEY: ${FRAUDSHIELD_LLM_API_KEY:-}
+  FRAUDSHIELD_LLM_MODEL: ${FRAUDSHIELD_LLM_MODEL:-}
+
+services:
+  fraudshield-api:
+    build:
+      context: .
+      target: runtime
+    environment: *fraudshield-development
+    ports:
+      - "8000:8000"
+    volumes:
+      - fraudshield-data:/var/lib/fraudshield
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  fraudshield-worker:
+    build:
+      context: .
+      target: runtime
+    command: ["fraudshield", "worker"]
+    environment: *fraudshield-development
+    volumes:
+      - fraudshield-data:/var/lib/fraudshield
+    depends_on:
+      fraudshield-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fraudshield-frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ""
+        VITE_DEMO_ENABLED: "true"
+        VITE_MAX_APK_MB: "75"
+    environment:
+      FRAUDSHIELD_API_UPSTREAM: http://fraudshield-api:8000
+    ports:
+      - "8080:8080"
+    depends_on:
+      fraudshield-api:
+        condition: service_healthy
+      fraudshield-worker:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  fraudshield-data:

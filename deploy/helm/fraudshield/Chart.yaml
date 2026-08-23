@@ -1,0 +1,7 @@
+apiVersion: v2
+name: fraudshield
+description: Production deployment for the FraudShield DeceptiScope APK analyst UI, API, and durable workers
+type: application
+version: 0.3.0
+appVersion: "3.0.0"
+kubeVersion: ">=1.29.0-0"

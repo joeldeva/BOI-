@@ -1,0 +1,95 @@
+image:
+  repository: registry.bank.example/security/fraudshield-backend
+  tag: ""
+  digest: sha256:replace-with-attested-image-digest
+
+frontend:
+  enabled: true
+  image:
+    repository: registry.bank.example/security/fraudshield-frontend
+    tag: ""
+    digest: sha256:replace-with-attested-frontend-image-digest
+
+existingSecret: fraudshield-runtime-secrets
+
+trustedCa:
+  configMapName: bank-private-ca-bundle
+  key: ca-bundle.crt
+
+serviceAccount:
+  annotations:
+    # Replace with the bank's workload-identity annotation when S3 credentials
+    # are supplied by the platform instead of a Kubernetes Secret.
+    identity.bank.example/role: fraudshield-evidence-writer
+
+worker:
+  runtimeClassName: gvisor
+
+config:
+  trustedHosts:
+    - fraudshield.bank.example
+  corsOrigins:
+    - https://fraudshield.bank.example
+  forwardedAllowIps: "10.20.10.0/24"
+  oidc:
+    issuer: https://identity.bank.example/realms/workforce
+    audience: fraudshield-api
+    jwksUrl: https://identity.bank.example/realms/workforce/protocol/openid-connect/certs
+  database:
+    poolMinSize: 2
+    poolMaxSize: 20
+  storage:
+    bucket: bank-fraudshield-evidence-prod
+    prefix: fraudshield
+    region: ap-south-1
+    endpointUrl: https://objectstore.bank.example
+    kmsKeyId: alias/fraudshield-evidence-prod
+  analysis:
+    # Keep all public lookups and binary transfers off until privacy, legal,
+    # egress and provider-retention reviews are approved.
+    apkidEnabled: true
+    yaraEnabled: true
+    signatureVerificationEnabled: true
+    similarityEnabled: true
+    quarkEnabled: false
+    quarkMaxRules: 300
+    engineTimeoutSeconds: 120
+    maxEngineOutputBytes: 2097152
+    mobsfEnabled: false
+    mobsfUrl: ""
+    mobsfAllowBinaryTransfer: false
+    reputationEnabled: false
+    allowExternalReputationInProduction: false
+    externalLookupTimeoutSeconds: 20
+    virustotalMaliciousThreshold: 5
+
+ingress:
+  enabled: true
+  className: nginx
+  host: fraudshield.bank.example
+  tlsSecretName: fraudshield-tls
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 80m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "2"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack
+
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-nginx
+  additionalIngressNamespaceSelectors:
+    - kubernetes.io/metadata.name: monitoring
+  # Replace these documentation ranges with the exact bank-owned PostgreSQL,
+  # identity-provider, object-store, DNS/proxy, and SIEM egress CIDRs.
+  externalEgressCidrs:
+    - 192.0.2.10/32
+    - 192.0.2.20/32
+    - 192.0.2.30/32

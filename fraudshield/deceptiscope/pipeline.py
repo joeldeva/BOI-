@@ -1,0 +1,209 @@
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from fraudshield.core.config import Settings
+from fraudshield.core.errors import FraudShieldError
+from fraudshield.core.repository import AnalysisRepository, IndicatorRepository
+from fraudshield.deceptiscope.demo import hero_apk_profile
+from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer
+from fraudshield.deceptiscope.engines import MultiEngineAnalyzer, malware_assessment
+from fraudshield.deceptiscope.extractor import StaticAPKExtractor
+from fraudshield.deceptiscope.fraud_delta import FraudDeltaCalculator
+from fraudshield.deceptiscope.mitre import map_mitre_mobile
+from fraudshield.deceptiscope.narrative import LLMNarrativeClient
+from fraudshield.deceptiscope.scoring import RiskScorer
+
+
+logger = logging.getLogger(__name__)
+
+
+class APKAnalysisPipeline:
+    def __init__(
+        self,
+        settings: Settings,
+        analyses: AnalysisRepository,
+        indicators: IndicatorRepository,
+    ) -> None:
+        self.settings = settings
+        self.analyses = analyses
+        self.indicators = indicators
+        self.delta = FraudDeltaCalculator(settings.baseline_path)
+        self.scorer = RiskScorer()
+        self.narratives = LLMNarrativeClient(settings)
+        self.dynamic = DynamicLiteAnalyzer(settings)
+        self.engines = MultiEngineAnalyzer(settings)
+
+    def analyze_uploaded(
+        self,
+        *,
+        path: Path,
+        original_name: str,
+        sha256: str,
+        size_bytes: int,
+        category: str,
+        dynamic: bool = False,
+    ) -> dict[str, Any]:
+        record = self.analyses.create(
+            file_name=original_name,
+            sha256=sha256,
+            size_bytes=size_bytes,
+            category=category,
+            data_origin="uploaded",
+        )
+        self.analyses.mark_running(record["id"])
+        try:
+            extraction = StaticAPKExtractor(path, self.settings, original_name=original_name).extract()
+            engine_analysis = self.engines.analyze(
+                path,
+                sha256=sha256,
+                extraction=extraction,
+            )
+            if dynamic:
+                package_name = extraction.get("app", {}).get("package_name", "unknown")
+                extraction["dynamic_observations"] = self.dynamic.observe(path, package_name)
+                extraction["coverage"]["dynamic"] = True
+            return self._complete(record["id"], extraction, category, engine_analysis)
+        except FraudShieldError as exc:
+            self.analyses.fail(record["id"], code=exc.code, message=exc.message)
+            raise
+        except Exception:
+            logger.exception("APK analysis failed")
+            self.analyses.fail(
+                record["id"],
+                code="analysis_failed",
+                message="Static analysis did not complete; inspect server logs using the analysis ID.",
+            )
+            raise
+        finally:
+            if not self.settings.retain_uploads:
+                path.unlink(missing_ok=True)
+
+    def analyze_demo(self, category: str = "banking") -> dict[str, Any]:
+        extraction = hero_apk_profile()
+        file_info = extraction["file"]
+        record = self.analyses.create(
+            file_name=file_info["name"],
+            sha256=file_info["sha256"],
+            size_bytes=0,
+            category=category,
+            data_origin="synthetic",
+        )
+        self.analyses.mark_running(record["id"])
+        return self._complete(record["id"], extraction, category, self.engines.demo_result())
+
+    def _complete(
+        self,
+        analysis_id: str,
+        extraction: dict[str, Any],
+        category: str,
+        engine_analysis: dict[str, Any],
+    ) -> dict[str, Any]:
+        fraud_delta = self.delta.calculate(extraction, category)
+        risk = self.scorer.calculate(extraction, fraud_delta, engine_analysis=engine_analysis)
+        assessment = malware_assessment(extraction, risk, engine_analysis)
+        mitre = map_mitre_mobile(extraction)
+        candidates = self._indicator_candidates(extraction, risk)
+        findings: dict[str, Any] = {
+            "schema_version": "3.0",
+            "analysis_id": analysis_id,
+            "extraction": extraction,
+            "engine_analysis": engine_analysis,
+            "risk": risk,
+            "malware_assessment": assessment,
+            "fraud_delta": fraud_delta,
+            "mitre_attack": mitre,
+            "indicator_candidates": candidates,
+            "emitted_indicators": [],
+            "decision_notice": (
+                "Analyst decision support only; no automated enforcement or account action is performed."
+            ),
+        }
+        emitted = self._emit_candidates(analysis_id, candidates, risk)
+        findings["emitted_indicators"] = emitted
+        narrative = self.narratives.explain(findings)
+        findings["narrative_metadata"] = {
+            "source": narrative.source,
+            "warning": narrative.warning,
+            "llm_controls_score": False,
+        }
+        return self.analyses.complete(
+            analysis_id,
+            result=findings,
+            narrative=narrative.text,
+            overall_score=risk["overall_score"],
+            severity=risk["severity"],
+            confidence=risk["confidence"],
+            analysis_quality=extraction["analysis_quality"],
+        )
+
+    @staticmethod
+    def _indicator_candidates(extraction: dict[str, Any], risk: dict[str, Any]) -> list[dict[str, Any]]:
+        if risk["overall_score"] < 50:
+            return []
+        severity = risk["severity"]
+        confidence = max(0.5, risk["confidence"] - 0.1)
+        candidates: list[dict[str, Any]] = []
+        network = extraction.get("network_indicators", {})
+        apk_sha256 = extraction.get("file", {}).get("sha256")
+        if apk_sha256:
+            candidates.append(
+                {
+                    "type": "apk_sha256",
+                    "value": apk_sha256,
+                    "severity": severity,
+                    "confidence": risk["confidence"],
+                }
+            )
+        for domain in network.get("domains", []):
+            candidates.append({"type": "domain", "value": domain, "severity": severity, "confidence": confidence})
+        for ip in network.get("ips", []):
+            candidates.append({"type": "ip", "value": ip, "severity": severity, "confidence": confidence})
+        certificate = extraction.get("certificate", {})
+        if certificate.get("sha256"):
+            candidates.append(
+                {
+                    "type": "certificate_sha256",
+                    "value": certificate["sha256"],
+                    "severity": severity,
+                    "confidence": risk["confidence"],
+                }
+            )
+        package = extraction.get("app", {}).get("package_name")
+        if package and package != "unknown":
+            candidates.append(
+                {
+                    "type": "package",
+                    "value": package,
+                    "severity": severity,
+                    "confidence": risk["confidence"],
+                }
+            )
+        dedup: dict[tuple[str, str], dict[str, Any]] = {}
+        for item in candidates:
+            dedup[(item["type"], item["value"])] = item
+        return list(dedup.values())
+
+    def _emit_candidates(
+        self,
+        analysis_id: str,
+        candidates: list[dict[str, Any]],
+        risk: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        emitted = []
+        for candidate in candidates:
+            emitted.append(
+                self.indicators.upsert(
+                    indicator_type=candidate["type"],
+                    value=candidate["value"],
+                    severity=candidate["severity"],
+                    confidence=candidate["confidence"],
+                    description="Observed in an APK scoring HIGH/CRITICAL; validate before enforcement.",
+                    source_analysis_id=analysis_id,
+                    metadata={"risk_model": risk["model_version"], "source": "deceptiscope-apk"},
+                    context={"overall_score": risk["overall_score"]},
+                )
+            )
+        return emitted

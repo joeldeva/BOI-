@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "fraudshield.fullname" . }}-migrate
+  labels:
+    {{- include "fraudshield.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "fraudshield.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "fraudshield.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: {{ include "fraudshield.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["fraudshield"]
+          args: ["init-db"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "fraudshield.fullname" . }}
+            - secretRef:
+                name: {{ .Values.existingSecret }}
+          {{- if .Values.trustedCa.configMapName }}
+          env:
+            - name: SSL_CERT_FILE
+              value: /etc/fraudshield/ca/ca-bundle.crt
+            - name: AWS_CA_BUNDLE
+              value: /etc/fraudshield/ca/ca-bundle.crt
+          {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: runtime
+              mountPath: /var/lib/fraudshield
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.trustedCa.configMapName }}
+            - name: trusted-ca
+              mountPath: /etc/fraudshield/ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: runtime
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        {{- if .Values.trustedCa.configMapName }}
+        - name: trusted-ca
+          configMap:
+            name: {{ .Values.trustedCa.configMapName }}
+            items:
+              - key: {{ .Values.trustedCa.key }}
+                path: ca-bundle.crt
+        {{- end }}

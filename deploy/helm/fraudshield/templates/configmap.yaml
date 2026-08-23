@@ -1,0 +1,57 @@
+{{- $fullname := include "fraudshield.fullname" . -}}
+{{- $namespace := .Release.Namespace -}}
+{{- $internalHosts := list $fullname (printf "%s.%s" $fullname $namespace) (printf "%s.%s.svc" $fullname $namespace) (printf "%s.%s.svc.cluster.local" $fullname $namespace) -}}
+{{- $trustedHosts := uniq (concat .Values.config.trustedHosts $internalHosts) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fraudshield.fullname" . }}
+  labels:
+    {{- include "fraudshield.labels" . | nindent 4 }}
+data:
+  FRAUDSHIELD_ENV: production
+  FRAUDSHIELD_AUTH_MODE: oidc
+  FRAUDSHIELD_OIDC_ISSUER: {{ .Values.config.oidc.issuer | quote }}
+  FRAUDSHIELD_OIDC_AUDIENCE: {{ .Values.config.oidc.audience | quote }}
+  FRAUDSHIELD_OIDC_JWKS_URL: {{ .Values.config.oidc.jwksUrl | quote }}
+  FRAUDSHIELD_OIDC_ALGORITHMS: {{ join "," .Values.config.oidc.algorithms | quote }}
+  FRAUDSHIELD_OIDC_ROLES_CLAIM: {{ .Values.config.oidc.rolesClaim | quote }}
+  FRAUDSHIELD_TRUSTED_HOSTS: {{ join "," $trustedHosts | quote }}
+  FRAUDSHIELD_CORS_ORIGINS: {{ join "," .Values.config.corsOrigins | quote }}
+  FRAUDSHIELD_FORWARDED_ALLOW_IPS: {{ .Values.config.forwardedAllowIps | quote }}
+  FRAUDSHIELD_DATABASE_POOL_MIN_SIZE: {{ .Values.config.database.poolMinSize | quote }}
+  FRAUDSHIELD_DATABASE_POOL_MAX_SIZE: {{ .Values.config.database.poolMaxSize | quote }}
+  FRAUDSHIELD_STORAGE_BACKEND: s3
+  FRAUDSHIELD_S3_BUCKET: {{ .Values.config.storage.bucket | quote }}
+  FRAUDSHIELD_S3_PREFIX: {{ .Values.config.storage.prefix | quote }}
+  FRAUDSHIELD_S3_REGION: {{ .Values.config.storage.region | quote }}
+  FRAUDSHIELD_S3_ENDPOINT_URL: {{ .Values.config.storage.endpointUrl | quote }}
+  FRAUDSHIELD_S3_KMS_KEY_ID: {{ .Values.config.storage.kmsKeyId | quote }}
+  FRAUDSHIELD_AUDIT_RETENTION_DAYS: {{ .Values.config.auditRetentionDays | quote }}
+  FRAUDSHIELD_AUDIT_HMAC_KEY_ID: {{ .Values.config.auditHmacKeyId | quote }}
+  FRAUDSHIELD_JOB_LEASE_SECONDS: {{ .Values.config.jobLeaseSeconds | quote }}
+  FRAUDSHIELD_WORKER_POLL_SECONDS: {{ .Values.config.workerPollSeconds | quote }}
+  FRAUDSHIELD_APKID_ENABLED: {{ .Values.config.analysis.apkidEnabled | quote }}
+  FRAUDSHIELD_YARA_ENABLED: {{ .Values.config.analysis.yaraEnabled | quote }}
+  FRAUDSHIELD_SIGNATURE_VERIFICATION_ENABLED: {{ .Values.config.analysis.signatureVerificationEnabled | quote }}
+  FRAUDSHIELD_SIMILARITY_ENABLED: {{ .Values.config.analysis.similarityEnabled | quote }}
+  FRAUDSHIELD_QUARK_ENABLED: {{ .Values.config.analysis.quarkEnabled | quote }}
+  FRAUDSHIELD_QUARK_MAX_RULES: {{ .Values.config.analysis.quarkMaxRules | quote }}
+  FRAUDSHIELD_ENGINE_TIMEOUT_SECONDS: {{ .Values.config.analysis.engineTimeoutSeconds | quote }}
+  FRAUDSHIELD_MAX_ENGINE_OUTPUT_BYTES: {{ .Values.config.analysis.maxEngineOutputBytes | quote }}
+  FRAUDSHIELD_MOBSF_ENABLED: {{ .Values.config.analysis.mobsfEnabled | quote }}
+  FRAUDSHIELD_MOBSF_URL: {{ .Values.config.analysis.mobsfUrl | quote }}
+  FRAUDSHIELD_MOBSF_ALLOW_BINARY_TRANSFER: {{ .Values.config.analysis.mobsfAllowBinaryTransfer | quote }}
+  FRAUDSHIELD_REPUTATION_ENABLED: {{ .Values.config.analysis.reputationEnabled | quote }}
+  FRAUDSHIELD_ALLOW_EXTERNAL_REPUTATION_IN_PRODUCTION: {{ .Values.config.analysis.allowExternalReputationInProduction | quote }}
+  FRAUDSHIELD_EXTERNAL_LOOKUP_TIMEOUT_SECONDS: {{ .Values.config.analysis.externalLookupTimeoutSeconds | quote }}
+  FRAUDSHIELD_VIRUSTOTAL_MALICIOUS_THRESHOLD: {{ .Values.config.analysis.virustotalMaliciousThreshold | quote }}
+  FRAUDSHIELD_DOCS_ENABLED: "false"
+  FRAUDSHIELD_DEMO_ENABLED: "false"
+  FRAUDSHIELD_LEGACY_API_ENABLED: "false"
+  FRAUDSHIELD_INLINE_ANALYSIS_ENABLED: "false"
+  FRAUDSHIELD_METRICS_ENABLED: "true"
+  FRAUDSHIELD_DYNAMIC_ANALYSIS_ENABLED: "false"
+  FRAUDSHIELD_LLM_PROVIDER: disabled
+  FRAUDSHIELD_RETAIN_UPLOADS: "false"
+  FRAUDSHIELD_DATA_DIR: /var/lib/fraudshield

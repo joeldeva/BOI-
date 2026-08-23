@@ -1,0 +1,16 @@
+FraudShield {{ .Chart.AppVersion }} has been rendered for namespace {{ .Release.Namespace }}.
+
+Analyst UI: {{ if .Values.frontend.enabled }}enabled{{ else }}disabled{{ end }}
+
+Required external secret: {{ .Values.existingSecret }}
+Required secret keys:
+  FRAUDSHIELD_DATABASE_URL
+  FRAUDSHIELD_AUDIT_HMAC_KEY
+
+Use workload identity for S3 whenever possible. If static credentials are
+unavoidable, also provide AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the
+existing secret.
+
+NetworkPolicy is fail-closed. Populate networkPolicy.externalEgressCidrs (or
+approved namespace selectors) for PostgreSQL, OIDC/JWKS, and object storage
+before rollout.

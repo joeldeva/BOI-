@@ -1,0 +1,157 @@
+image:
+  repository: registry.example.invalid/bank/fraudshield-backend
+  tag: "3.0.0"
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+existingSecret: fraudshield-runtime-secrets
+
+trustedCa:
+  configMapName: ""
+  key: ca-bundle.crt
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+config:
+  trustedHosts:
+    - fraudshield.bank.example
+  corsOrigins:
+    - https://fraudshield.bank.example
+  forwardedAllowIps: "127.0.0.1"
+  oidc:
+    issuer: https://identity.bank.example/realms/workforce
+    audience: fraudshield-api
+    jwksUrl: https://identity.bank.example/realms/workforce/protocol/openid-connect/certs
+    algorithms:
+      - RS256
+    rolesClaim: roles
+  database:
+    poolMinSize: 2
+    poolMaxSize: 20
+  storage:
+    bucket: bank-fraudshield-evidence
+    prefix: fraudshield
+    region: ap-south-1
+    endpointUrl: ""
+    kmsKeyId: alias/fraudshield-evidence
+  auditRetentionDays: 180
+  auditHmacKeyId: v1
+  jobLeaseSeconds: 1800
+  workerPollSeconds: 2
+  analysis:
+    apkidEnabled: true
+    yaraEnabled: true
+    signatureVerificationEnabled: true
+    similarityEnabled: true
+    quarkEnabled: false
+    quarkMaxRules: 300
+    engineTimeoutSeconds: 120
+    maxEngineOutputBytes: 2097152
+    mobsfEnabled: false
+    mobsfUrl: ""
+    mobsfAllowBinaryTransfer: false
+    reputationEnabled: false
+    allowExternalReputationInProduction: false
+    externalLookupTimeoutSeconds: 20
+    virustotalMaliciousThreshold: 5
+
+api:
+  replicaCount: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+      ephemeral-storage: 256Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+      ephemeral-storage: 1Gi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+worker:
+  replicaCount: 2
+  runtimeClassName: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+      ephemeral-storage: 1Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+      ephemeral-storage: 4Gi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+frontend:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: registry.example.invalid/bank/fraudshield-frontend
+    tag: "3.0.0"
+    digest: ""
+    pullPolicy: IfNotPresent
+  service:
+    port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+      ephemeral-storage: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+      ephemeral-storage: 256Mi
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+runtimeStorage:
+  sizeLimit: 4Gi
+tmpStorage:
+  sizeLimit: 512Mi
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  host: fraudshield.bank.example
+  tlsSecretName: fraudshield-tls
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 65
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  additionalLabels: {}
+
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-nginx
+  additionalIngressNamespaceSelectors: []
+  externalEgressCidrs: []
+  additionalEgressNamespaceSelectors: []

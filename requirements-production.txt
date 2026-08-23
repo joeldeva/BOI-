@@ -1,0 +1,8 @@
+# Human-maintained production inputs. The image and CI install the reviewed,
+# hash-locked transitive set in requirements-production.lock.
+-r requirements.txt
+boto3>=1.40,<2
+prometheus-client>=0.26,<1
+psycopg[binary]>=3.3.4,<4
+psycopg-pool>=3.3,<4
+PyJWT[crypto]>=2.13,<3

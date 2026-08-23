@@ -1,0 +1,5 @@
+-r requirements.txt
+PyJWT[crypto]>=2.13,<3
+pytest>=9.1.1,<10
+pytest-cov>=7,<8
+ruff>=0.14,<1

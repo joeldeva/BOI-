@@ -1,0 +1,69 @@
+name: Backend CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5.4.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test and production dependency sets
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --require-hashes -r requirements-build.lock
+          python -m pip install --require-hashes -r requirements-production.lock
+          python -m pip install --no-deps -e .
+          python -m pip install 'pytest>=9.1,<10' 'pytest-cov>=7,<8' 'ruff>=0.14,<1' 'pip-audit>=2.9,<3'
+      - name: Lint
+        run: python -m ruff check fraudshield tests
+      - name: Test
+        run: python -m pytest --cov=fraudshield --cov-report=term-missing --cov-fail-under=75
+      - name: Dependency vulnerability audit and CycloneDX SBOM
+        run: |
+          python -m pip_audit --strict --require-hashes --requirement requirements-production.lock
+          python -m pip_audit --require-hashes --requirement requirements-production.lock --format cyclonedx-json --output fraudshield-python-sbom.json
+      - name: Build wheel and source distribution
+        run: python -m build --no-isolation
+      - name: Upload build and dependency evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fraudshield-backend-${{ github.sha }}
+          path: |
+            dist/*
+            fraudshield-python-sbom.json
+            requirements-build.lock
+            requirements-production.lock
+          if-no-files-found: error
+          retention-days: 30
+
+  container-and-chart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Build production container
+        run: docker build --pull --tag fraudshield:${{ github.sha }} .
+      - name: Validate Compose model
+        run: docker compose config --quiet
+      - name: Lint Helm chart
+        run: >-
+          docker run --rm
+          --volume "$PWD:/work"
+          --workdir /work
+          alpine/helm:3.18.6
+          lint deploy/helm/fraudshield
+          --values deploy/helm/fraudshield/values-production.example.yaml
