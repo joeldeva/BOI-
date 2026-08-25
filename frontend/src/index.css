@@ -94,3 +94,22 @@
   color: #93c5fd;
   border: 1px solid rgba(59, 130, 246, 0.35);
 }
+
+/* Investigation Timeline */
+.timeline-container {
+  position: relative;
+}
+
+.timeline-node {
+  transition: transform 0.12s ease-out;
+}
+.timeline-node:hover {
+  transform: translateX(2px);
+}
+
+.timeline-connector {
+  transition: background-color 0.15s ease-in-out;
+}
+.timeline-node:hover .timeline-connector {
+  background-color: rgba(148, 163, 184, 0.4);
+}

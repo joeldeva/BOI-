@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from fraudshield.api.dependencies import container
 from fraudshield.core.security import require_api_key
+from fraudshield.deceptiscope.experiments import CATALOG_VERSION, TrustedExperimentRegistry
 from fraudshield.services.container import ServiceContainer
 
 
@@ -83,6 +84,14 @@ def capabilities(services: Annotated[ServiceContainer, Depends(container)]) -> d
             "provider": services.settings.llm_provider,
             "configured": services.settings.llm_provider != "disabled",
             "controls_risk_score": False,
+        },
+        "ai_experiments": {
+            "catalog_version": CATALOG_VERSION,
+            "plan_limit": services.settings.ai_experiment_plan_limit,
+            "max_investigation_rounds": services.settings.max_investigation_rounds,
+            "max_experiments_per_round": services.settings.max_experiments_per_round,
+            "execution_mode": "planned-only",
+            "catalog": TrustedExperimentRegistry().catalog_payload(),
         },
         "pdf_reports": True,
         "durable_jobs": True,

@@ -54,6 +54,12 @@ def test_dynamic_lite_is_disabled_by_default(settings, tmp_path: Path) -> None:
         DynamicLiteAnalyzer(settings).observe(tmp_path / "sample.apk", "org.example.sample")
 
 
+def test_dynamic_lite_requires_explicit_emulator_target(settings, tmp_path: Path) -> None:
+    unsafe = settings.with_overrides(dynamic_analysis_enabled=True, adb_emulator_serial="device-1234")
+    with pytest.raises(ConfigurationError):
+        DynamicLiteAnalyzer(unsafe).observe(tmp_path / "sample.apk", "org.example.sample")
+
+
 def test_static_extraction_and_scoring_are_evidence_grounded(
     settings, malicious_apk: bytes, tmp_path: Path
 ) -> None:

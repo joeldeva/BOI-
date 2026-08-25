@@ -115,7 +115,11 @@ class Settings:
     llm_api_key: str = ""
     llm_model: str = ""
     llm_timeout_seconds: int = 20
+    ai_experiment_plan_limit: int = 3
+    max_investigation_rounds: int = 2
+    max_experiments_per_round: int = 3
     dynamic_analysis_enabled: bool = False
+    dynamic_network_policy: str = "observe-only"
     adb_path: str = "adb"
     adb_emulator_serial: str = ""
     dynamic_timeout_seconds: int = 90
@@ -259,7 +263,13 @@ class Settings:
             llm_api_key=source.get("FRAUDSHIELD_LLM_API_KEY", ""),
             llm_model=source.get("FRAUDSHIELD_LLM_MODEL", ""),
             llm_timeout_seconds=_int(source.get("FRAUDSHIELD_LLM_TIMEOUT_SECONDS"), 20),
+            ai_experiment_plan_limit=_int(source.get("FRAUDSHIELD_AI_EXPERIMENT_PLAN_LIMIT"), 3),
+            max_investigation_rounds=_int(
+                source.get("FRAUDSHIELD_MAX_INVESTIGATION_ROUNDS"), 2, minimum=0
+            ),
+            max_experiments_per_round=_int(source.get("FRAUDSHIELD_MAX_EXPERIMENTS_PER_ROUND"), 3),
             dynamic_analysis_enabled=_bool(source.get("FRAUDSHIELD_DYNAMIC_ANALYSIS_ENABLED")),
+            dynamic_network_policy=source.get("FRAUDSHIELD_DYNAMIC_NETWORK_POLICY", "observe-only").strip().lower(),
             adb_path=source.get("FRAUDSHIELD_ADB_PATH", "adb"),
             adb_emulator_serial=source.get("FRAUDSHIELD_ADB_EMULATOR_SERIAL", ""),
             dynamic_timeout_seconds=_int(source.get("FRAUDSHIELD_DYNAMIC_TIMEOUT_SECONDS"), 90),
@@ -399,6 +409,12 @@ class Settings:
                 "External LLM use in production requires explicit privacy/compliance approval and "
                 "FRAUDSHIELD_ALLOW_EXTERNAL_LLM_IN_PRODUCTION=true"
             )
+        if not 1 <= self.ai_experiment_plan_limit <= 10:
+            raise RuntimeError("FRAUDSHIELD_AI_EXPERIMENT_PLAN_LIMIT must be between 1 and 10")
+        if not 0 <= self.max_investigation_rounds <= 5:
+            raise RuntimeError("FRAUDSHIELD_MAX_INVESTIGATION_ROUNDS must be between 0 and 5")
+        if not 1 <= self.max_experiments_per_round <= 10:
+            raise RuntimeError("FRAUDSHIELD_MAX_EXPERIMENTS_PER_ROUND must be between 1 and 10")
         if "*" in self.cors_origins:
             raise RuntimeError("Wildcard CORS origins are not supported")
         if any(not origin.startswith(("http://", "https://")) for origin in self.cors_origins):
@@ -450,3 +466,5 @@ class Settings:
             raise RuntimeError(
                 "FRAUDSHIELD_ADB_EMULATOR_SERIAL must identify an emulator-* target when dynamic analysis is enabled"
             )
+        if self.dynamic_network_policy not in {"observe-only", "disabled"}:
+            raise RuntimeError("FRAUDSHIELD_DYNAMIC_NETWORK_POLICY must be observe-only or disabled")

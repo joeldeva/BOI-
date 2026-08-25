@@ -12,6 +12,7 @@ from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer
 from fraudshield.deceptiscope.engines import MultiEngineAnalyzer, malware_assessment
 from fraudshield.deceptiscope.extractor import StaticAPKExtractor
 from fraudshield.deceptiscope.fraud_delta import FraudDeltaCalculator
+from fraudshield.deceptiscope.investigation import AIInvestigatorClient
 from fraudshield.deceptiscope.mitre import map_mitre_mobile
 from fraudshield.deceptiscope.narrative import LLMNarrativeClient
 from fraudshield.deceptiscope.scoring import RiskScorer
@@ -33,6 +34,7 @@ class APKAnalysisPipeline:
         self.delta = FraudDeltaCalculator(settings.baseline_path)
         self.scorer = RiskScorer()
         self.narratives = LLMNarrativeClient(settings)
+        self.ai_investigator = AIInvestigatorClient(settings)
         self.dynamic = DynamicLiteAnalyzer(settings)
         self.engines = MultiEngineAnalyzer(settings)
 
@@ -63,7 +65,10 @@ class APKAnalysisPipeline:
             )
             if dynamic:
                 package_name = extraction.get("app", {}).get("package_name", "unknown")
-                extraction["dynamic_observations"] = self.dynamic.observe(path, package_name)
+                dynamic_observations = self.dynamic.observe(path, package_name)
+                extraction["dynamic_observations"] = dynamic_observations
+                extraction["runtime_evidence"] = dynamic_observations.get("runtime_evidence", [])
+                extraction["dynamic_experiment_results"] = dynamic_observations.get("experiment_results", [])
                 extraction["coverage"]["dynamic"] = True
             return self._complete(record["id"], extraction, category, engine_analysis)
         except FraudShieldError as exc:
@@ -106,6 +111,8 @@ class APKAnalysisPipeline:
         assessment = malware_assessment(extraction, risk, engine_analysis)
         mitre = map_mitre_mobile(extraction)
         candidates = self._indicator_candidates(extraction, risk)
+        runtime_evidence = list(extraction.get("runtime_evidence", []))
+        experiment_results = list(extraction.get("dynamic_experiment_results", []))
         findings: dict[str, Any] = {
             "schema_version": "3.0",
             "analysis_id": analysis_id,
@@ -117,12 +124,15 @@ class APKAnalysisPipeline:
             "mitre_attack": mitre,
             "indicator_candidates": candidates,
             "emitted_indicators": [],
+            "runtime_evidence": runtime_evidence,
+            "experiment_results": experiment_results,
             "decision_notice": (
                 "Analyst decision support only; no automated enforcement or account action is performed."
             ),
         }
         emitted = self._emit_candidates(analysis_id, candidates, risk)
         findings["emitted_indicators"] = emitted
+        findings["ai_investigation"] = self.ai_investigator.investigate(findings)
         narrative = self.narratives.explain(findings)
         findings["narrative_metadata"] = {
             "source": narrative.source,

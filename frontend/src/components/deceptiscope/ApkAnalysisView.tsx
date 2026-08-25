@@ -16,6 +16,8 @@ import {
 import { ScoreGauge } from '../common/ScoreGauge';
 import { SeverityBadge } from '../common/SeverityBadge';
 import { SyntheticBadge } from '../common/SyntheticBadge';
+import { InvestigationTimeline } from './InvestigationTimeline';
+import { ProvenanceGraph } from './ProvenanceGraph';
 import type { ApkAnalysisRecord } from '../../types/api';
 
 interface ApkAnalysisViewProps {
@@ -30,6 +32,24 @@ const verdictStyle: Record<string, string> = {
   REVIEW_REQUIRED: 'border-amber-500/50 bg-amber-950/40 text-amber-200',
   INCONCLUSIVE: 'border-amber-500/50 bg-amber-950/40 text-amber-200',
   LOW_RISK_OBSERVED: 'border-emerald-500/40 bg-emerald-950/30 text-emerald-200',
+};
+
+const investigationStatusStyle: Record<string, string> = {
+  completed: 'text-emerald-300 border-emerald-500/30 bg-emerald-950/20',
+  disabled: 'text-slate-300 border-slate-700 bg-slate-950/40',
+  failed: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
+  unavailable: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
+};
+
+const experimentStatusStyle: Record<string, string> = {
+  PLANNED: 'text-blue-300 border-blue-500/30 bg-blue-950/20',
+  SKIPPED: 'text-slate-300 border-slate-700 bg-slate-950/40',
+  UNSUPPORTED: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
+  UNAVAILABLE: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
+  RUNNING: 'text-violet-300 border-violet-500/30 bg-violet-950/20',
+  COMPLETED: 'text-emerald-300 border-emerald-500/30 bg-emerald-950/20',
+  FAILED: 'text-red-300 border-red-500/30 bg-red-950/20',
+  TIMED_OUT: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
 };
 
 export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProps) {
@@ -60,6 +80,8 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
   const risk = result.risk;
   const assessment = result.malware_assessment;
   const engineAnalysis = result.engine_analysis;
+  const aiInvestigation = result.ai_investigation;
+  const experimentPlan = aiInvestigation?.experiment_plan ?? [];
   const isPartial = analysis.analysis_quality === 'partial';
   const networkValues = [
     ...result.extraction.network_indicators.domains,
@@ -115,6 +137,10 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
         </div>
       </section>
 
+      <InvestigationTimeline result={result} />
+
+      <ProvenanceGraph result={result} />
+
       <section className="soc-card p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2"><Cpu className="w-5 h-5 text-emerald-400" /><h3 className="text-base font-bold text-white">Multi-engine execution</h3></div>
@@ -147,6 +173,93 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
           </div>
         )}
       </section>
+
+      {aiInvestigation && (
+        <section className="soc-card p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div className="flex items-center gap-2"><CircleHelp className="w-5 h-5 text-violet-300" /><h3 className="text-base font-bold text-white">AI investigator</h3></div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`px-2 py-1 rounded border text-[10px] font-mono font-bold uppercase ${investigationStatusStyle[aiInvestigation.status] ?? investigationStatusStyle.failed}`}>{aiInvestigation.status}</span>
+              <span className="text-[11px] font-mono text-slate-400">{aiInvestigation.provider} Â· {aiInvestigation.model} Â· score control: none</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="p-3 rounded bg-slate-950 border border-slate-800">
+              <p className="text-[10px] uppercase font-bold text-slate-500">Evidence IDs</p>
+              <p className="text-2xl font-mono font-bold text-white">{aiInvestigation.evidence_count}</p>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {aiInvestigation.evidence.slice(0, 18).map((item) => (
+                  <span key={item.evidence_id} className="px-1.5 py-0.5 rounded border border-slate-700 text-[10px] font-mono text-slate-300" title={`${item.title}: ${item.value}`}>{item.evidence_id}</span>
+                ))}
+              </div>
+            </div>
+            <div className="lg:col-span-2 space-y-2">
+              {aiInvestigation.warning && <div className="p-3 rounded bg-amber-950/30 border border-amber-500/30 text-xs text-amber-200">{aiInvestigation.warning}</div>}
+              {(aiInvestigation.validation_errors ?? []).length > 0 && (
+                <div className="p-3 rounded bg-red-950/30 border border-red-500/30 text-xs text-red-200">
+                  {(aiInvestigation.validation_errors ?? []).map((error) => <p key={error}>{error}</p>)}
+                </div>
+              )}
+              {aiInvestigation.hypotheses.length === 0 && !aiInvestigation.warning && <p className="text-xs text-slate-400">No evidence-grounded hypotheses were returned.</p>}
+            </div>
+          </div>
+
+          {aiInvestigation.hypotheses.length > 0 && (
+            <div className="space-y-3">
+              {aiInvestigation.hypotheses.map((hypothesis) => (
+                <div key={hypothesis.hypothesis_id} className="p-4 rounded-lg bg-slate-950 border border-slate-800 space-y-3">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-white">{hypothesis.title}</p>
+                      <p className="text-[10px] font-mono text-slate-500">{hypothesis.category} Â· {hypothesis.status} Â· confidence {(hypothesis.confidence * 100).toFixed(0)}%</p>
+                    </div>
+                    <span className="text-[10px] font-mono text-violet-300">{hypothesis.hypothesis_id}</span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">{hypothesis.reasoning_summary}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <p className="font-bold text-slate-400 mb-1">Supporting IDs</p>
+                      <div className="flex flex-wrap gap-1">{hypothesis.supporting_evidence_ids.map((id) => <span key={id} className="font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">{id}</span>)}</div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-400 mb-1">Missing proof</p>
+                      <div className="space-y-1 text-slate-300">{hypothesis.missing_evidence.slice(0, 3).map((item) => <p key={item}>{item}</p>)}</div>
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-400 mb-1">Next experiments</p>
+                      <div className="flex flex-wrap gap-1">{hypothesis.recommended_experiment_types.map((item) => <span key={item} className="font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">{item.replaceAll('_', ' ')}</span>)}</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {experimentPlan.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+                <p className="text-xs font-bold text-slate-300">Safe experiment plan</p>
+                <span className="text-[10px] font-mono text-slate-500">{experimentPlan.length} planned records</span>
+              </div>
+              {experimentPlan.map((experiment) => (
+                <div key={experiment.experiment_id} className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="flex flex-col md:flex-row md:items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-white">{experiment.experiment_type.replaceAll('_', ' ')}</p>
+                      <p className="text-[10px] font-mono text-slate-500">{experiment.experiment_id} Â· {experiment.hypothesis_id} Â· priority {experiment.priority} Â· {experiment.timeout_seconds}s</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded border text-[10px] font-mono font-bold ${experimentStatusStyle[experiment.status] ?? experimentStatusStyle.UNSUPPORTED}`}>{experiment.status}</span>
+                  </div>
+                  <p className="text-xs text-slate-300">{experiment.objective}</p>
+                  <p className="text-[11px] text-slate-400">{experiment.expected_signal}</p>
+                  {experiment.unsupported_reason && <p className="text-[11px] text-amber-300">{experiment.unsupported_reason}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="soc-card p-6 space-y-4">

@@ -26,6 +26,30 @@ export interface EngineCapability {
   mode: string;
 }
 
+export type AIExperimentType =
+  | 'LAUNCH_APP'
+  | 'OBSERVE_STARTUP'
+  | 'SYNTHETIC_SMS'
+  | 'NETWORK_OBSERVATION'
+  | 'ACCESSIBILITY_OBSERVATION'
+  | 'FILESYSTEM_DIFF'
+  | 'DYNAMIC_CODE_LOAD_OBSERVATION'
+  | 'WEBVIEW_OBSERVATION'
+  | 'UI_SCREENSHOT'
+  | 'PACKAGE_STATE_CAPTURE'
+  | 'LOGCAT_CAPTURE';
+
+export type AIExperimentStatus = 'PLANNED' | 'SKIPPED' | 'UNSUPPORTED' | 'UNAVAILABLE' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'TIMED_OUT';
+
+export interface AIExperimentDefinition {
+  experiment_type: AIExperimentType;
+  description: string;
+  required_capabilities: string[];
+  timeout_seconds: number;
+  safe_by_default: boolean;
+  produces_evidence_types: string[];
+}
+
 export interface CapabilitiesResponse {
   static_apk_analysis: boolean;
   apk_only_product: true;
@@ -42,8 +66,18 @@ export interface CapabilitiesResponse {
     adb_available: boolean;
     emulator_serial_configured: boolean;
     safe_target_shape: boolean;
+    synthetic_markers?: { otp: string };
+    network_policy?: JsonObject;
   };
   llm: { provider: string; configured: boolean; controls_risk_score: false };
+  ai_experiments: {
+    catalog_version: string;
+    plan_limit: number;
+    max_investigation_rounds: number;
+    max_experiments_per_round: number;
+    execution_mode: 'planned-only' | string;
+    catalog: AIExperimentDefinition[];
+  };
   pdf_reports: boolean;
   durable_jobs: boolean;
   inline_analysis: boolean;
@@ -212,6 +246,128 @@ export interface MalwareAssessment {
   limitations: string[];
 }
 
+export type AIInvestigationStatus = 'disabled' | 'completed' | 'failed' | 'unavailable';
+export type AIHypothesisStatus = 'PROPOSED' | 'SUPPORTED' | 'CONTRADICTED' | 'CONFIRMED' | 'INCONCLUSIVE';
+export type AIHypothesisCategory =
+  | 'OTP_INTERCEPTION'
+  | 'ACCESSIBILITY_ABUSE'
+  | 'CREDENTIAL_PHISHING'
+  | 'OVERLAY_ATTACK'
+  | 'DATA_EXFILTRATION'
+  | 'DYNAMIC_CODE_LOADING'
+  | 'DEVICE_RECONNAISSANCE'
+  | 'BANK_IMPERSONATION'
+  | 'REMOTE_CONTROL'
+  | 'UNKNOWN_SUSPICIOUS_BEHAVIOR';
+
+export interface InvestigationEvidenceItem {
+  evidence_id: string;
+  evidence_type: string;
+  source: string;
+  title: string;
+  value: string;
+  confidence: number;
+  metadata: JsonObject;
+}
+
+export interface AIHypothesis {
+  hypothesis_id: string;
+  category: AIHypothesisCategory;
+  status: AIHypothesisStatus;
+  confidence: number;
+  title: string;
+  reasoning_summary: string;
+  supporting_evidence_ids: string[];
+  contradicting_evidence_ids: string[];
+  missing_evidence: string[];
+  recommended_experiment_types: AIExperimentType[];
+  recommended_next_steps: string[];
+  limitations: string[];
+  evidence_strength: number;
+  verification_summary: string;
+  runtime_evidence_ids: string[];
+}
+
+export interface AIExperimentPlanItem {
+  experiment_id: string;
+  hypothesis_id: string;
+  experiment_type: AIExperimentType;
+  objective: string;
+  expected_signal: string;
+  priority: number;
+  status: AIExperimentStatus;
+  description: string;
+  required_capabilities: string[];
+  timeout_seconds: number;
+  safe_by_default: boolean;
+  produces_evidence_types: string[];
+  supported: boolean;
+  unsupported_reason: string | null;
+}
+
+export interface HypothesisVerification {
+  hypothesis_id: string;
+  category: AIHypothesisCategory | string;
+  original_status: AIHypothesisStatus | string;
+  verified_status: AIHypothesisStatus | string;
+  evidence_strength: number;
+  ai_confidence: number;
+  static_evidence_ids: string[];
+  runtime_evidence_ids: string[];
+  experiment_result_ids: string[];
+  observed_signals: string[];
+  missing_signals: string[];
+  deterministic_explanation: string;
+  confirmation_allowed: boolean;
+}
+
+export interface AIInvestigation {
+  schema_version: string;
+  provider: string;
+  model: string;
+  status: AIInvestigationStatus;
+  hypotheses: AIHypothesis[];
+  experiment_plan: AIExperimentPlanItem[];
+  hypothesis_verifications: HypothesisVerification[];
+  feedback_loop: {
+    rounds_completed: number;
+    round_limit: number;
+    max_experiments_per_round: number;
+    stopped_reason: string;
+    [key: string]: unknown;
+  };
+  evidence_count: number;
+  evidence: InvestigationEvidenceItem[];
+  controls_risk_score: false;
+  can_mark_malicious: false;
+  warning: string | null;
+  validation_errors: string[];
+}
+
+export interface RuntimeEvidence {
+  evidence_id: string;
+  timestamp_ms: number;
+  evidence_type: string;
+  source: 'dynamic' | string;
+  process: string;
+  description: string;
+  confidence: number;
+  metadata: JsonObject;
+}
+
+export interface DynamicExperimentResult {
+  experiment_id: string;
+  experiment_type: AIExperimentType;
+  status: AIExperimentStatus;
+  started_at_ms: number;
+  completed_at_ms: number;
+  evidence_ids: string[];
+  summary: string;
+  unavailable_reason: string | null;
+  error: string | null;
+  metadata: JsonObject;
+}
+
 export interface ApkAnalysisResult {
   schema_version: string;
   analysis_id: string;
@@ -237,7 +393,10 @@ export interface ApkAnalysisResult {
   fraud_delta: FraudDelta;
   mitre_attack: MitreAttackItem[];
   emitted_indicators: ThreatIndicatorRecord[];
+  runtime_evidence: RuntimeEvidence[];
+  experiment_results: DynamicExperimentResult[];
   extraction: ApkExtractionDetails;
+  ai_investigation?: AIInvestigation;
   narrative_metadata: { llm_controls_score: false; source: string; warning: string | null };
 }
 

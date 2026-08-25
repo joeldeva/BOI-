@@ -12,6 +12,13 @@ def test_health_and_capabilities(client) -> None:
     capabilities = client.get("/api/v1/system/capabilities").json()
     assert capabilities["apk_only_product"] is True
     assert capabilities["llm"]["controls_risk_score"] is False
+    assert capabilities["ai_experiments"]["plan_limit"] == 3
+    assert capabilities["ai_experiments"]["execution_mode"] == "planned-only"
+    assert {item["experiment_type"] for item in capabilities["ai_experiments"]["catalog"]} >= {
+        "SYNTHETIC_SMS",
+        "LOGCAT_CAPTURE",
+        "PACKAGE_STATE_CAPTURE",
+    }
     assert capabilities["multi_engine"]["binary_upload_policy"] == "disabled-for-public-services"
     assert {item["id"] for item in capabilities["multi_engine"]["engines"]} >= {
         "androguard",
@@ -55,6 +62,11 @@ def test_apk_analysis_persistence_pdf_and_multi_engine_contract(client, maliciou
     assert result["malware_assessment"]["safe_to_install"] is False
     assert result["engine_analysis"]["policy"]["public_binary_uploads"] is False
     assert result["engine_analysis"]["policy"]["external_hash_lookups"] is False
+    assert result["ai_investigation"]["status"] == "disabled"
+    assert result["ai_investigation"]["evidence_count"] > 0
+    assert result["ai_investigation"]["controls_risk_score"] is False
+    assert result["runtime_evidence"] == []
+    assert result["experiment_results"] == []
     assert result["narrative_metadata"]["llm_controls_score"] is False
     assert any(item["type"] == "apk_sha256" for item in result["emitted_indicators"])
     fetched = client.get(f"/api/v1/apk-analyses/{analysis['id']}")
