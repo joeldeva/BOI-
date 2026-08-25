@@ -7,7 +7,7 @@ name = "fraudshield-backend"
 version = "3.0.0"
 description = "Evidence-grounded multi-engine Android APK intelligence backend"
 readme = "README.md"
-license = { text = "AGPL-3.0-only" }
+license = "AGPL-3.0-only"
 requires-python = ">=3.11,<3.14"
 dependencies = [
   "androguard>=4.1.4,<5",
@@ -24,10 +24,13 @@ dependencies = [
 openai = ["openai>=2,<4"]
 analysis = [
   "apkid>=3.1,<4",
-  "dexofuzzy>=2,<3",
   "quark-engine>=26.6,<27",
   "six>=1.16,<2",
   "yara-python-dex>=1.0.7,<2"
+]
+similarity = [
+  "dexofuzzy>=2,<3",
+  "six>=1.16,<2"
 ]
 production = [
   "boto3>=1.40,<2",

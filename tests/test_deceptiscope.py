@@ -158,3 +158,56 @@ def test_normalized_engine_points_are_bounded_and_assessment_never_claims_safety
     assessment = malware_assessment(extracted, risk, engine_analysis)
     assert assessment["legitimacy"] == "not-established"
     assert assessment["safe_to_install"] is False
+
+
+def test_similarity_engine_reports_unavailable_when_dependencies_absent(
+    settings, malicious_apk: bytes, tmp_path: Path, monkeypatch
+) -> None:
+    # Ensure neither ssdeep nor dexofuzzy are treated as available
+    monkeypatch.setattr("fraudshield.deceptiscope.engines._module_available", lambda name: False if name in {"ssdeep", "dexofuzzy"} else True)
+    analyzer = MultiEngineAnalyzer(settings)
+    caps = analyzer.capabilities()
+    similarity_cap = next(item for item in caps["engines"] if item["id"] == "similarity")
+    assert similarity_cap["enabled"] is True
+    assert similarity_cap["available"] is False
+
+    target = tmp_path / "sample.apk"
+    target.write_bytes(malicious_apk)
+    extracted = StaticAPKExtractor(target, settings).extract()
+    result = analyzer.analyze(
+        target,
+        sha256=hashlib.sha256(malicious_apk).hexdigest(),
+        extraction=extracted,
+    )
+    similarity_run = next(item for item in result["engines"] if item["id"] == "similarity")
+    assert similarity_run["status"] == "unavailable"
+
+
+def test_similarity_engine_completes_when_dependencies_present(
+    settings, malicious_apk: bytes, tmp_path: Path, monkeypatch
+) -> None:
+    # Mock ssdeep availability and behavior
+    monkeypatch.setattr("fraudshield.deceptiscope.engines._module_available", lambda name: True if name == "ssdeep" else False)
+    class FakeSsdeep:
+        @staticmethod
+        def hash_from_file(path_str: str) -> str:
+            return "48:fake-ssdeep-hash:test"
+
+    monkeypatch.setitem(__import__("sys").modules, "ssdeep", FakeSsdeep)
+    analyzer = MultiEngineAnalyzer(settings)
+    caps = analyzer.capabilities()
+    similarity_cap = next(item for item in caps["engines"] if item["id"] == "similarity")
+    assert similarity_cap["available"] is True
+
+    target = tmp_path / "sample.apk"
+    target.write_bytes(malicious_apk)
+    extracted = StaticAPKExtractor(target, settings).extract()
+    result = analyzer.analyze(
+        target,
+        sha256=hashlib.sha256(malicious_apk).hexdigest(),
+        extraction=extracted,
+    )
+    similarity_run = next(item for item in result["engines"] if item["id"] == "similarity")
+    assert similarity_run["status"] == "completed"
+    assert similarity_run["summary"]["ssdeep"] == "48:fake-ssdeep-hash:test"
+

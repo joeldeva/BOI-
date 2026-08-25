@@ -22,7 +22,7 @@ COPY fraudshield ./fraudshield
 
 RUN "$BUILD_VIRTUAL_ENV/bin/python" -m build --wheel --no-isolation --outdir /build/dist \
     && "$VIRTUAL_ENV/bin/python" -m pip install --upgrade pip setuptools wheel \
-    && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir /build/dist/*.whl ".[production,analysis]"
+    && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir $(ls /build/dist/fraudshield_backend-*.whl)[production,analysis]
 
 
 
