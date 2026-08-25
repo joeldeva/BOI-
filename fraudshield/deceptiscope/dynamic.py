@@ -57,7 +57,7 @@ class RuntimeEvidence(BaseModel):
 class DynamicExperimentResult(BaseModel):
     model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
-    experiment_id: str = Field(pattern=r"^DYN\d{3}$")
+    experiment_id: str = Field(pattern=r"^(?:DYN|EXP)\d{3}$")
     experiment_type: ExperimentType
     status: ExperimentStatus
     started_at_ms: int = Field(ge=0)
@@ -140,9 +140,9 @@ class DynamicLiteAnalyzer:
         apk_path: Path,
         package_name: str,
         experiment_types: list[ExperimentType | str] | None = None,
+        plan_items: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         self._preflight(package_name)
-        selected = self._selected_experiments(experiment_types)
         started_at = time.monotonic()
         builder = _RuntimeEvidenceBuilder(package_name, started_at)
         observations: dict[str, Any] = {
@@ -175,17 +175,34 @@ class DynamicLiteAnalyzer:
             self._try_clear_logcat(observations)
             self._run("install", "-r", "-t", str(apk_path))
             observations["installed"] = True
-            for index, experiment_type in enumerate(selected, start=1):
-                result = self._execute_experiment(
-                    experiment_id=f"DYN{index:03d}",
-                    experiment_type=experiment_type,
-                    state=state,
-                    builder=builder,
-                )
-                observations["experiment_results"].append(result.model_dump(mode="json"))
-                observations["launched"] = bool(state.get("launched"))
-                if state.get("package_dump"):
-                    observations["package_dump"] = str(state["package_dump"])[:20_000]
+            if plan_items:
+                for item in plan_items:
+                    exp_id = str(item.get("experiment_id") if isinstance(item, dict) else item.experiment_id)
+                    raw_type = item.get("experiment_type") if isinstance(item, dict) else item.experiment_type
+                    exp_type = ExperimentType(raw_type)
+                    result = self._execute_experiment(
+                        experiment_id=exp_id,
+                        experiment_type=exp_type,
+                        state=state,
+                        builder=builder,
+                    )
+                    observations["experiment_results"].append(result.model_dump(mode="json"))
+                    observations["launched"] = bool(state.get("launched"))
+                    if state.get("package_dump"):
+                        observations["package_dump"] = str(state["package_dump"])[:20_000]
+            else:
+                selected = self._selected_experiments(experiment_types)
+                for index, experiment_type in enumerate(selected, start=1):
+                    result = self._execute_experiment(
+                        experiment_id=f"DYN{index:03d}",
+                        experiment_type=experiment_type,
+                        state=state,
+                        builder=builder,
+                    )
+                    observations["experiment_results"].append(result.model_dump(mode="json"))
+                    observations["launched"] = bool(state.get("launched"))
+                    if state.get("package_dump"):
+                        observations["package_dump"] = str(state["package_dump"])[:20_000]
             if not state.get("latest_logcat"):
                 state["latest_logcat"] = self._capture_logcat_optional(observations)
             observations["logcat_excerpt"] = self._package_logcat_excerpt(

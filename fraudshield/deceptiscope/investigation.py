@@ -357,14 +357,21 @@ class AIInvestigatorClient:
         self.planner = planner or ExperimentPlanner(settings)
         self.verifier = verifier or HypothesisVerifier()
 
-    def investigate(self, findings: dict[str, Any]) -> dict[str, Any]:
+    def plan_investigation(
+        self,
+        findings: dict[str, Any],
+    ) -> tuple[InvestigationStatus, list[EvidenceItem], list[dict[str, Any]], list[dict[str, Any]], list[str], str | None]:
+        """Generate evidence-grounded hypotheses and validated experiment plan from static/preliminary findings."""
         evidence = self.normalizer.build(findings)
         provider = self.settings.llm_provider
         if provider == "disabled":
-            return self._output(
-                status=InvestigationStatus.DISABLED,
-                evidence=evidence,
-                warning="AI investigator disabled; normalized evidence IDs were still generated.",
+            return (
+                InvestigationStatus.DISABLED,
+                evidence,
+                [],
+                [],
+                [],
+                "AI investigator disabled; normalized evidence IDs were still generated.",
             )
         try:
             prompt_payload = self._prompt_payload(findings, evidence, self.settings)
@@ -374,44 +381,98 @@ class AIInvestigatorClient:
             experiment_plan, experiment_errors = self.planner.plan_from_payload(payload, hypotheses)
             validation_errors.extend(experiment_errors)
             if not hypotheses and validation_errors:
-                return self._output(
-                    status=InvestigationStatus.FAILED,
-                    evidence=evidence,
-                    warning="AI investigator response did not satisfy the evidence-grounded output contract.",
-                    validation_errors=validation_errors,
+                return (
+                    InvestigationStatus.FAILED,
+                    evidence,
+                    [],
+                    [],
+                    validation_errors,
+                    "AI investigator response did not satisfy the evidence-grounded output contract.",
                 )
-            verifications = self.verifier.verify_all(hypotheses, findings, evidence)
-            feedback_updates, feedback_errors, feedback_loop = self._run_feedback_round(
-                hypotheses,
-                findings,
+            return (
+                InvestigationStatus.COMPLETED,
                 evidence,
-                verifications,
-            )
-            validation_errors.extend(feedback_errors)
-            hypotheses = apply_verifications_to_hypotheses(hypotheses, verifications, feedback_updates)
-            return self._output(
-                status=InvestigationStatus.COMPLETED,
-                evidence=evidence,
-                hypotheses=hypotheses,
-                experiment_plan=experiment_plan,
-                hypothesis_verifications=verifications,
-                feedback_loop=feedback_loop,
-                validation_errors=validation_errors,
+                hypotheses,
+                experiment_plan,
+                validation_errors,
+                None,
             )
         except ImportError as exc:
             logger.warning("AI investigator provider unavailable: %s", type(exc).__name__)
-            return self._output(
-                status=InvestigationStatus.UNAVAILABLE,
-                evidence=evidence,
-                warning="AI provider dependency is unavailable.",
+            return (
+                InvestigationStatus.UNAVAILABLE,
+                evidence,
+                [],
+                [],
+                [],
+                "AI provider dependency is unavailable.",
             )
         except Exception as exc:
             logger.warning("AI investigator failed: %s", type(exc).__name__)
-            return self._output(
-                status=InvestigationStatus.FAILED,
-                evidence=evidence,
-                warning="AI investigator failed; deterministic analysis remains authoritative.",
+            return (
+                InvestigationStatus.FAILED,
+                evidence,
+                [],
+                [],
+                [f"AI planner error: {type(exc).__name__}"],
+                "AI investigator failed; deterministic analysis remains authoritative.",
             )
+
+    def verify_and_finalize(
+        self,
+        *,
+        status: InvestigationStatus,
+        evidence: list[EvidenceItem],
+        hypotheses: list[dict[str, Any]],
+        experiment_plan: list[dict[str, Any]],
+        findings: dict[str, Any],
+        validation_errors: list[str] | None = None,
+        warning: str | None = None,
+    ) -> dict[str, Any]:
+        """Deterministically verify hypotheses against observed evidence and run optional bounded feedback pass."""
+        errors = list(validation_errors or [])
+        if status in {InvestigationStatus.DISABLED, InvestigationStatus.UNAVAILABLE, InvestigationStatus.FAILED} and not hypotheses:
+            return self._output(
+                status=status,
+                evidence=evidence,
+                hypotheses=hypotheses,
+                experiment_plan=experiment_plan,
+                hypothesis_verifications=[],
+                warning=warning,
+                validation_errors=errors,
+            )
+
+        verifications = self.verifier.verify_all(hypotheses, findings, evidence)
+        feedback_updates, feedback_errors, feedback_loop = self._run_feedback_round(
+            hypotheses,
+            findings,
+            evidence,
+            verifications,
+        )
+        errors.extend(feedback_errors)
+        final_hypotheses = apply_verifications_to_hypotheses(hypotheses, verifications, feedback_updates)
+        return self._output(
+            status=status if status != InvestigationStatus.DISABLED else InvestigationStatus.DISABLED,
+            evidence=evidence,
+            hypotheses=final_hypotheses,
+            experiment_plan=experiment_plan,
+            hypothesis_verifications=verifications,
+            feedback_loop=feedback_loop,
+            warning=warning,
+            validation_errors=errors,
+        )
+
+    def investigate(self, findings: dict[str, Any]) -> dict[str, Any]:
+        status, evidence, hypotheses, experiment_plan, validation_errors, warning = self.plan_investigation(findings)
+        return self.verify_and_finalize(
+            status=status,
+            evidence=evidence,
+            hypotheses=hypotheses,
+            experiment_plan=experiment_plan,
+            findings=findings,
+            validation_errors=validation_errors,
+            warning=warning,
+        )
 
     def _output(
         self,

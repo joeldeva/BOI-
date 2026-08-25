@@ -74,6 +74,9 @@ class ExperimentStatus(str, Enum):
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     TIMED_OUT = "TIMED_OUT"
+    NOT_RUN = "NOT_RUN"
+    DISABLED = "DISABLED"
+    BLOCKED_BY_POLICY = "BLOCKED_BY_POLICY"
 
 
 class ExperimentDefinition(BaseModel):

@@ -63,14 +63,124 @@ class APKAnalysisPipeline:
                 sha256=sha256,
                 extraction=extraction,
             )
+            fraud_delta = self.delta.calculate(extraction, category)
+            risk = self.scorer.calculate(extraction, fraud_delta, engine_analysis=engine_analysis)
+            assessment = malware_assessment(extraction, risk, engine_analysis)
+            mitre = map_mitre_mobile(extraction)
+            candidates = self._indicator_candidates(extraction, risk)
+
+            preliminary_findings: dict[str, Any] = {
+                "schema_version": "3.0",
+                "analysis_id": record["id"],
+                "extraction": extraction,
+                "engine_analysis": engine_analysis,
+                "risk": risk,
+                "malware_assessment": assessment,
+                "fraud_delta": fraud_delta,
+                "mitre_attack": mitre,
+                "indicator_candidates": candidates,
+                "emitted_indicators": [],
+                "runtime_evidence": [],
+                "experiment_results": [],
+                "decision_notice": (
+                    "Analyst decision support only; no automated enforcement or account action is performed."
+                ),
+            }
+
+            ai_status, evidence, hypotheses, experiment_plan, validation_errors, ai_warning = (
+                self.ai_investigator.plan_investigation(preliminary_findings)
+            )
+
+            runtime_evidence: list[dict[str, Any]] = []
+            experiment_results: list[dict[str, Any]] = []
+
             if dynamic:
                 package_name = extraction.get("app", {}).get("package_name", "unknown")
-                dynamic_observations = self.dynamic.observe(path, package_name)
-                extraction["dynamic_observations"] = dynamic_observations
-                extraction["runtime_evidence"] = dynamic_observations.get("runtime_evidence", [])
-                extraction["dynamic_experiment_results"] = dynamic_observations.get("experiment_results", [])
-                extraction["coverage"]["dynamic"] = True
-            return self._complete(record["id"], extraction, category, engine_analysis)
+                dynamic_status = self.dynamic.status()
+                if dynamic_status.get("enabled") and dynamic_status.get("adb_available") and dynamic_status.get("safe_target_shape"):
+                    try:
+                        dynamic_observations = self.dynamic.observe(
+                            path,
+                            package_name,
+                            plan_items=experiment_plan if experiment_plan else None,
+                        )
+                        extraction["dynamic_observations"] = dynamic_observations
+                        runtime_evidence = dynamic_observations.get("runtime_evidence", [])
+                        experiment_results = dynamic_observations.get("experiment_results", [])
+                        extraction["runtime_evidence"] = runtime_evidence
+                        extraction["dynamic_experiment_results"] = experiment_results
+                        extraction["coverage"]["dynamic"] = True
+
+                        results_by_id = {res.get("experiment_id"): res for res in experiment_results}
+                        for plan_item in experiment_plan:
+                            exp_id = plan_item.get("experiment_id")
+                            if exp_id in results_by_id:
+                                plan_item["status"] = results_by_id[exp_id].get("status", "COMPLETED")
+                    except Exception as exc:
+                        logger.warning("Dynamic sandbox execution encountered an error: %s", exc)
+                        extraction["coverage"]["dynamic"] = False
+                        for plan_item in experiment_plan:
+                            plan_item["status"] = "FAILED"
+                            plan_item["unsupported_reason"] = f"Dynamic execution failed: {type(exc).__name__}"
+                else:
+                    extraction["coverage"]["dynamic"] = False
+                    for plan_item in experiment_plan:
+                        if plan_item.get("status") in {"PLANNED", "COMPLETED"}:
+                            plan_item["status"] = "UNAVAILABLE"
+                            plan_item["unsupported_reason"] = "Dynamic emulator sandbox is disabled or unavailable"
+            else:
+                extraction["coverage"]["dynamic"] = False
+                for plan_item in experiment_plan:
+                    if plan_item.get("status") == "PLANNED":
+                        plan_item["status"] = "SKIPPED"
+                        plan_item["unsupported_reason"] = "Dynamic analysis was not requested"
+
+            findings: dict[str, Any] = {
+                "schema_version": "3.0",
+                "analysis_id": record["id"],
+                "extraction": extraction,
+                "engine_analysis": engine_analysis,
+                "risk": risk,
+                "malware_assessment": assessment,
+                "fraud_delta": fraud_delta,
+                "mitre_attack": mitre,
+                "indicator_candidates": candidates,
+                "emitted_indicators": [],
+                "runtime_evidence": runtime_evidence,
+                "experiment_results": experiment_results,
+                "decision_notice": (
+                    "Analyst decision support only; no automated enforcement or account action is performed."
+                ),
+            }
+
+            ai_investigation = self.ai_investigator.verify_and_finalize(
+                status=ai_status,
+                evidence=evidence,
+                hypotheses=hypotheses,
+                experiment_plan=experiment_plan,
+                findings=findings,
+                validation_errors=validation_errors,
+                warning=ai_warning,
+            )
+            findings["ai_investigation"] = ai_investigation
+
+            emitted = self._emit_candidates(record["id"], candidates, risk)
+            findings["emitted_indicators"] = emitted
+            narrative = self.narratives.explain(findings)
+            findings["narrative_metadata"] = {
+                "source": narrative.source,
+                "warning": narrative.warning,
+                "llm_controls_score": False,
+            }
+            return self.analyses.complete(
+                record["id"],
+                result=findings,
+                narrative=narrative.text,
+                overall_score=risk["overall_score"],
+                severity=risk["severity"],
+                confidence=risk["confidence"],
+                analysis_quality=extraction["analysis_quality"],
+            )
         except FraudShieldError as exc:
             self.analyses.fail(record["id"], code=exc.code, message=exc.message)
             raise
@@ -97,9 +207,9 @@ class APKAnalysisPipeline:
             data_origin="synthetic",
         )
         self.analyses.mark_running(record["id"])
-        return self._complete(record["id"], extraction, category, self.engines.demo_result())
+        return self._complete_demo(record["id"], extraction, category, self.engines.demo_result())
 
-    def _complete(
+    def _complete_demo(
         self,
         analysis_id: str,
         extraction: dict[str, Any],
