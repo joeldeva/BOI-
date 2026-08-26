@@ -171,9 +171,7 @@ class HypothesisVerifier:
         has_payload_correlation = any(
             str(ev.get("trust_level")) == "PAYLOAD_CORRELATED"
             or ev.get("metadata", {}).get("payload_correlated") is True
-            or "BOI-TEST" in str(ev.get("metadata", {}).get("destination", ""))
-            or "BOI-TEST" in str(ev.get("metadata", {}).get("payload", ""))
-            for ev in network_items
+            for ev in (marker_items + network_items)
         )
 
         observed = []

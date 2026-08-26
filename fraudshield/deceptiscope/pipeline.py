@@ -21,6 +21,12 @@ from fraudshield.deceptiscope.investigation import AIInvestigatorClient
 from fraudshield.deceptiscope.lineage import DataLineageCorrelator, SyntheticMarkerManager
 from fraudshield.deceptiscope.mitre import map_mitre_mobile
 from fraudshield.deceptiscope.narrative import LLMNarrativeClient
+from fraudshield.deceptiscope.payloads import (
+    PayloadAnalysisStatus,
+    PayloadAnalyzer,
+    PayloadRecoveryManager,
+    RecoveredPayload,
+)
 from fraudshield.deceptiscope.reverse import MethodLevelAnalyzer
 from fraudshield.deceptiscope.scoring import RiskScorer
 
@@ -45,6 +51,8 @@ class APKAnalysisPipeline:
         self.dynamic = DynamicLiteAnalyzer(settings)
         self.engines = MultiEngineAnalyzer(settings)
         self.reverse_analyzer = MethodLevelAnalyzer()
+        self.payload_recovery_manager = PayloadRecoveryManager()
+        self.payload_analyzer = PayloadAnalyzer(self.reverse_analyzer)
         self.campaign_correlator = CampaignCorrelator()
         self.frauddna_extractor = FraudDNAExtractor()
         self.brand_analyzer = BrandImpersonationAnalyzer()
@@ -111,6 +119,10 @@ class APKAnalysisPipeline:
             runtime_evidence: list[dict[str, Any]] = []
             experiment_results: list[dict[str, Any]] = []
 
+            marker_manager = SyntheticMarkerManager()
+            otp_marker = marker_manager.create_otp_marker(custom_value="BOI-TEST-749231")
+            recovered_payloads_list: list[dict[str, Any]] = []
+
             if dynamic:
                 package_name = extraction.get("app", {}).get("package_name", "unknown")
                 dynamic_status = self.dynamic.status()
@@ -120,6 +132,7 @@ class APKAnalysisPipeline:
                             path,
                             package_name,
                             plan_items=experiment_plan if experiment_plan else None,
+                            active_marker=otp_marker,
                         )
                         extraction["dynamic_observations"] = dynamic_observations
                         runtime_evidence = dynamic_observations.get("runtime_evidence", [])
@@ -127,6 +140,50 @@ class APKAnalysisPipeline:
                         extraction["runtime_evidence"] = runtime_evidence
                         extraction["dynamic_experiment_results"] = experiment_results
                         extraction["coverage"]["dynamic"] = True
+
+                        # Safely process any dynamic secondary DEX loading events
+                        dcl_events = [ev for ev in runtime_evidence if ev.get("evidence_type") == "dynamic_code_load"]
+                        for dcl_ev in dcl_events:
+                            meta = dcl_ev.get("metadata", {})
+                            ev_meta = meta.get("event_metadata", {}) if isinstance(meta.get("event_metadata"), dict) else meta
+                            dex_p = ev_meta.get("dex_path") or ev_meta.get("source_path") or meta.get("dex_path") or meta.get("source_path")
+                            loader_name = str(ev_meta.get("loader_type") or "DexClassLoader")
+                            r_ev_id = str(dcl_ev.get("evidence_id") or "")
+
+                            if dex_p and Path(dex_p).exists() and Path(dex_p).is_file():
+                                p_obj, raw_b = self.payload_recovery_manager.recover_from_file_path(
+                                    parent_sha256=sha256,
+                                    file_path=Path(dex_p),
+                                    loader=loader_name,
+                                    runtime_evidence_id=r_ev_id,
+                                )
+                            elif "raw_bytes" in ev_meta and isinstance(ev_meta["raw_bytes"], bytes):
+                                p_obj, raw_b = self.payload_recovery_manager.process_payload_bytes(
+                                    parent_sha256=sha256,
+                                    raw_bytes=ev_meta["raw_bytes"],
+                                    source="MEMORY_DUMP",
+                                    loader=loader_name,
+                                    runtime_evidence_id=r_ev_id,
+                                )
+                            else:
+                                p_obj = RecoveredPayload(
+                                    payload_id=f"PAYLOAD-{len(recovered_payloads_list) + 1:03d}",
+                                    parent_sample_sha256=sha256,
+                                    sha256="0" * 64,
+                                    payload_type="DEX",
+                                    size_bytes=0,
+                                    source="FILE_RECOVERED" if dex_p else "MEMORY_DUMP",
+                                    loader=loader_name,
+                                    runtime_evidence_id=r_ev_id,
+                                    analysis_status=PayloadAnalysisStatus.UNAVAILABLE,
+                                    metadata={"reason": "Dynamic loader observed; payload bytes not recoverable on host"},
+                                )
+                                raw_b = None
+
+                            if p_obj.analysis_status == PayloadAnalysisStatus.ANALYZED and raw_b:
+                                self.payload_analyzer.analyze_payload(p_obj, raw_b)
+
+                            recovered_payloads_list.append(p_obj.model_dump(mode="json"))
 
                         results_by_id = {res.get("experiment_id"): res for res in experiment_results}
                         for plan_item in experiment_plan:
@@ -152,10 +209,42 @@ class APKAnalysisPipeline:
                         plan_item["status"] = "SKIPPED"
                         plan_item["unsupported_reason"] = "Dynamic analysis was not requested"
 
-            marker_manager = SyntheticMarkerManager()
-            marker_manager.create_otp_marker(custom_value="BOI-TEST-749231")
-            lineages = DataLineageCorrelator().correlate(runtime_evidence, marker_manager.all_markers())
+            extraction["recovered_payloads"] = recovered_payloads_list
+
+            package_name_str = extraction.get("app", {}).get("package_name", "unknown")
+            lineages = DataLineageCorrelator().correlate(
+                runtime_evidence,
+                marker_manager.all_markers(),
+                target_package=package_name_str,
+            )
             payload_lineage_dicts = [pl.model_dump(mode="json") for pl in lineages]
+
+            # If complete exfiltration is proven, ensure a PAYLOAD_CORRELATED synthetic_marker_correlation item is present
+            has_exfil = any(pl.is_complete_exfiltration for pl in lineages)
+            if has_exfil:
+                has_corr = any(
+                    ev.get("evidence_type") == "synthetic_marker_correlation"
+                    and str(ev.get("trust_level")) == "PAYLOAD_CORRELATED"
+                    for ev in runtime_evidence
+                )
+                if not has_corr:
+                    corr_ev = {
+                        "evidence_id": f"R{len(runtime_evidence) + 1:03d}",
+                        "timestamp_ms": 0,
+                        "evidence_type": "synthetic_marker_correlation",
+                        "source": "dynamic",
+                        "trust_level": "PAYLOAD_CORRELATED",
+                        "process": package_name_str,
+                        "description": f"Verified synthetic marker correlation in outbound network body: {otp_marker.value}",
+                        "confidence": 1.0,
+                        "metadata": {
+                            "marker": otp_marker.value,
+                            "marker_id": otp_marker.marker_id,
+                            "payload_correlated": True,
+                            "target_package": package_name_str,
+                        },
+                    }
+                    runtime_evidence.append(corr_ev)
 
             # Firebase Static Extraction
             firebase_infra = self.firebase_extractor.extract_from_findings(extraction, apk_path=path)
@@ -170,7 +259,7 @@ class APKAnalysisPipeline:
             frauddna_fp = self.frauddna_extractor.extract({
                 "extraction": extraction,
                 "engine_analysis": engine_analysis,
-                "recovered_payloads": extraction.get("recovered_payloads", []),
+                "recovered_payloads": recovered_payloads_list,
                 "method_level_reverse": method_evidence,
                 "firebase_infrastructure": firebase_infra.model_dump(mode="json"),
                 "analysis_id": record["id"],
@@ -191,6 +280,7 @@ class APKAnalysisPipeline:
                 "emitted_indicators": [],
                 "runtime_evidence": runtime_evidence,
                 "experiment_results": experiment_results,
+                "recovered_payloads": recovered_payloads_list,
                 "payload_lineage": payload_lineage_dicts,
                 "brand_impersonation": brand_impersonation.model_dump(mode="json"),
                 "firebase_infrastructure": firebase_infra.model_dump(mode="json"),

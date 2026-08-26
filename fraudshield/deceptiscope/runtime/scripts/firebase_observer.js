@@ -9,20 +9,24 @@ Java.perform(function () {
     // 1. Hook FirebaseDatabase (Realtime DB)
     try {
         var FirebaseDatabase = Java.use('com.google.firebase.database.FirebaseDatabase');
-        FirebaseDatabase.getReference.overload('java.lang.String').implementation = function (path) {
-            send({
-                schema_version: 'deceptiscope.runtime.v1',
-                timestamp_ms: Date.now(),
-                event_type: 'firebase_database_reference',
-                trust_level: 'INSTRUMENTED',
-                process: Process.id,
-                description: 'Firebase Realtime Database accessed reference: ' + path,
-                api: 'com.google.firebase.database.FirebaseDatabase.getReference(String)',
-                metadata: {
-                    reference_path: path
-                }
-            });
-            return this.getReference(path);
+        var originalGetRef = FirebaseDatabase.getReference.overload('java.lang.String');
+        originalGetRef.implementation = function (path) {
+            try {
+                send({
+                    schema: 'deceptiscope.runtime.v1',
+                    observer: 'network',
+                    event_type: 'HTTP_REQUEST_OBSERVED',
+                    timestamp_ms: Date.now(),
+                    api: 'com.google.firebase.database.FirebaseDatabase.getReference(String)',
+                    target_package: (Java.use('android.app.ActivityThread').currentPackageName() || 'target.app'),
+                    metadata: {
+                        client: 'FirebaseDatabase',
+                        reference_path: path ? path.toString() : '',
+                        has_synthetic_marker: false
+                    }
+                });
+            } catch(e) {}
+            return originalGetRef.call(this, path);
         };
     } catch (e) {
         // Class not present in this APK
@@ -31,20 +35,24 @@ Java.perform(function () {
     // 2. Hook FirebaseFirestore (Cloud Firestore)
     try {
         var FirebaseFirestore = Java.use('com.google.firebase.firestore.FirebaseFirestore');
-        FirebaseFirestore.collection.overload('java.lang.String').implementation = function (collectionPath) {
-            send({
-                schema_version: 'deceptiscope.runtime.v1',
-                timestamp_ms: Date.now(),
-                event_type: 'firebase_firestore_collection',
-                trust_level: 'INSTRUMENTED',
-                process: Process.id,
-                description: 'Cloud Firestore accessed collection: ' + collectionPath,
-                api: 'com.google.firebase.firestore.FirebaseFirestore.collection(String)',
-                metadata: {
-                    collection_path: collectionPath
-                }
-            });
-            return this.collection(collectionPath);
+        var originalCollection = FirebaseFirestore.collection.overload('java.lang.String');
+        originalCollection.implementation = function (collectionPath) {
+            try {
+                send({
+                    schema: 'deceptiscope.runtime.v1',
+                    observer: 'network',
+                    event_type: 'HTTP_REQUEST_OBSERVED',
+                    timestamp_ms: Date.now(),
+                    api: 'com.google.firebase.firestore.FirebaseFirestore.collection(String)',
+                    target_package: (Java.use('android.app.ActivityThread').currentPackageName() || 'target.app'),
+                    metadata: {
+                        client: 'FirebaseFirestore',
+                        collection_path: collectionPath ? collectionPath.toString() : '',
+                        has_synthetic_marker: false
+                    }
+                });
+            } catch(e) {}
+            return originalCollection.call(this, collectionPath);
         };
     } catch (e) {
         // Class not present in this APK

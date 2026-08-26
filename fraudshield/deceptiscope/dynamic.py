@@ -149,9 +149,11 @@ class DynamicLiteAnalyzer:
         package_name: str,
         experiment_types: list[ExperimentType | str] | None = None,
         plan_items: list[dict[str, Any]] | None = None,
+        active_marker: Any | None = None,
     ) -> dict[str, Any]:
         self._preflight(package_name)
         started_at = time.monotonic()
+        marker_str = getattr(active_marker, "value", str(active_marker or SYNTHETIC_OTP_MARKER))
         builder = _RuntimeEvidenceBuilder(package_name, started_at)
         observations: dict[str, Any] = {
             "schema_version": "1.0",
@@ -163,7 +165,7 @@ class DynamicLiteAnalyzer:
             "logcat_excerpt": [],
             "runtime_evidence": [],
             "experiment_results": [],
-            "synthetic_markers": {"otp": SYNTHETIC_OTP_MARKER},
+            "synthetic_markers": {"otp": marker_str},
             "network_policy": {
                 "mode": self.settings.dynamic_network_policy,
                 "llm_supplied_targets": False,
@@ -178,6 +180,7 @@ class DynamicLiteAnalyzer:
             "launched": False,
             "file_snapshot_before": None,
             "file_snapshot_after": None,
+            "active_marker": marker_str,
         }
         try:
             self._try_clear_logcat(observations)
@@ -412,25 +415,26 @@ class DynamicLiteAnalyzer:
         state: dict[str, Any],
         builder: _RuntimeEvidenceBuilder,
     ) -> tuple[ExperimentStatus, str, str | None]:
-        self._run("emu", "sms", "send", "+15551230000", SYNTHETIC_OTP_MARKER, timeout=20)
+        marker = str(state.get("active_marker") or SYNTHETIC_OTP_MARKER)
+        self._run("emu", "sms", "send", "+15551230000", marker, timeout=20)
         builder.add(
             "synthetic_sms_delivered",
             "Synthetic OTP SMS marker was delivered to the emulator",
             confidence=1.0,
             trust_level=EvidenceTrustLevel.INSTRUMENTED,
-            metadata={"marker": SYNTHETIC_OTP_MARKER, "test_data": True},
+            metadata={"marker": marker, "test_data": True},
         )
         time.sleep(0.2)
         logcat = self._capture_logcat()
         state["latest_logcat"] = logcat
         self._extract_logcat_evidence(logcat, state, builder)
-        if self._marker_seen_in_app_logcat(logcat, str(state["package_name"])):
+        if self._marker_seen_in_app_logcat(logcat, str(state["package_name"]), marker):
             builder.add(
                 "synthetic_marker_correlation",
                 "Synthetic OTP marker appeared later in an application-associated runtime data path",
                 confidence=1.0,
                 trust_level=EvidenceTrustLevel.LOG_OBSERVED,
-                metadata={"marker": SYNTHETIC_OTP_MARKER, "correlation_source": "package-filtered logcat"},
+                metadata={"marker": marker, "correlation_source": "package-filtered logcat"},
             )
         return ExperimentStatus.COMPLETED, "Synthetic SMS was delivered and correlated where observable", None
 
@@ -621,30 +625,30 @@ class DynamicLiteAnalyzer:
                 if normalized.lower() in ANDROID_NOISE_DOMAINS:
                     continue
                 evidence_type = "dns_destination" if not normalized.startswith(("http://", "https://")) else "network_destination"
-                has_marker = SYNTHETIC_OTP_MARKER in line or SYNTHETIC_OTP_MARKER in normalized
-                trust_level = EvidenceTrustLevel.PAYLOAD_CORRELATED if has_marker else EvidenceTrustLevel.LOG_OBSERVED
-                confidence = 0.95 if has_marker else 0.55
+                # RULE: Logcat MUST NEVER create PAYLOAD_CORRELATED.
+                # It remains LOG_OBSERVED even if marker appears on the line.
+                trust_level = EvidenceTrustLevel.LOG_OBSERVED
+                confidence = 0.60
                 builder.add(
                     evidence_type,
-                    "Runtime output referenced a network destination with verified synthetic payload correlation"
-                    if has_marker
-                    else "Runtime output referenced a network destination without trusting response content",
+                    "Runtime output referenced a network destination without trusting response content",
                     confidence=confidence,
                     trust_level=trust_level,
                     metadata={
                         "destination": _clip(normalized, 300),
                         "observation_source": "package-filtered logcat",
-                        "content_trusted": has_marker,
-                        "payload_correlated": has_marker,
+                        "content_trusted": False,
+                        "payload_correlated": False,
                     },
                 )
 
-    def _marker_seen_in_app_logcat(self, logcat: str, package_name: str) -> bool:
-        return any(SYNTHETIC_OTP_MARKER in line and package_name in line for line in logcat.splitlines())
+    def _marker_seen_in_app_logcat(self, logcat: str, package_name: str, marker: str = SYNTHETIC_OTP_MARKER) -> bool:
+        return any(marker in line and package_name in line for line in logcat.splitlines())
 
     @staticmethod
     def _relevant_lines(logcat: str, package_name: str) -> list[str]:
-        return [line for line in logcat.splitlines() if package_name in line or SYNTHETIC_OTP_MARKER in line]
+        # Target package attribution required; do NOT include unrelated process lines
+        return [line for line in logcat.splitlines() if package_name in line]
 
     def _try_clear_logcat(self, observations: dict[str, Any]) -> None:
         try:

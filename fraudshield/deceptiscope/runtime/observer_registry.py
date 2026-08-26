@@ -17,8 +17,8 @@ EXPERIMENT_OBSERVER_MAP: dict[ExperimentType, tuple[str, ...]] = {
     ExperimentType.ACCESSIBILITY_OBSERVATION: ("accessibility",),
     ExperimentType.NETWORK_OBSERVATION: ("network",),
     ExperimentType.DYNAMIC_CODE_LOAD_OBSERVATION: ("dynamic_dex",),
-    ExperimentType.WEBVIEW_OBSERVATION: ("network",),
-    ExperimentType.LAUNCH_APP: ("sms", "network", "dynamic_dex", "accessibility"),
+    ExperimentType.WEBVIEW_OBSERVATION: ("webview",),
+    ExperimentType.LAUNCH_APP: ("sms", "network", "dynamic_dex", "accessibility", "webview"),
     ExperimentType.OBSERVE_STARTUP: ("dynamic_dex", "network"),
     ExperimentType.PACKAGE_STATE_CAPTURE: (),
     ExperimentType.LOGCAT_CAPTURE: (),
@@ -32,6 +32,7 @@ OBSERVER_SCRIPT_FILES: dict[str, str] = {
     "accessibility": "accessibility_observer.js",
     "network": "network_observer.js",
     "dynamic_dex": "dynamic_dex_observer.js",
+    "webview": "webview_observer.js",
 }
 
 

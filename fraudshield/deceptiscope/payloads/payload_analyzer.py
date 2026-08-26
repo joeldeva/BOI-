@@ -63,7 +63,7 @@ class PayloadAnalyzer:
                 call_site = mth.get("call_site")
 
                 ev_item = EvidenceItem(
-                    evidence_id=f"P{index:03d}",
+                    evidence_id=f"E{index:03d}",
                     evidence_type="payload_method_behavior",
                     source="recovered-payload",
                     title=f"[{sig_id}] {title} (in {payload.payload_id})",

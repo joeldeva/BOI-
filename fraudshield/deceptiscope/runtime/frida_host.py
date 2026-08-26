@@ -86,39 +86,76 @@ class FridaHost:
         events: list[FridaRuntimeEvent],
         builder: _RuntimeEvidenceBuilder,
     ) -> list[RuntimeEvidence]:
-        """Converts structured Frida runtime events into trusted RuntimeEvidence records."""
+        """Converts structured Frida runtime events into canonical trusted RuntimeEvidence records."""
         added: list[RuntimeEvidence] = []
         for event in events:
-            has_marker = event.metadata.get("has_synthetic_marker", False)
-            trust_level = (
-                EvidenceTrustLevel.PAYLOAD_CORRELATED
-                if has_marker
-                else EvidenceTrustLevel.INSTRUMENTED
-            )
+            ev_type = self._map_event_to_canonical_type(event.observer, event.event_type)
+            
+            # Frida raw observations have INSTRUMENTED trust level.
+            # PAYLOAD_CORRELATED is assigned ONLY after deterministic backend lineage correlation.
+            trust_level = EvidenceTrustLevel.INSTRUMENTED
 
-            # Map event type to descriptive evidence description
             desc = f"Instrumented {event.observer.upper()} observation: {event.event_type} at {event.api}"
-            if has_marker:
-                desc += " (correlated synthetic test marker)"
+            if event.metadata.get("has_synthetic_marker"):
+                desc += " (synthetic marker detected in memory)"
+
+            metadata: dict[str, Any] = {
+                "schema": event.schema_version,
+                "observer": event.observer,
+                "event_type": event.event_type,
+                "api": event.api,
+                "target_package": event.target_package,
+                "event_metadata": event.metadata,
+            }
+            # Copy specific metadata keys for direct compatibility
+            if "destination" in event.metadata:
+                metadata["destination"] = event.metadata["destination"]
+            if "url" in event.metadata:
+                metadata["destination"] = event.metadata["url"]
+                metadata["url"] = event.metadata["url"]
+            if "endpoint" in event.metadata:
+                metadata["destination"] = event.metadata["endpoint"]
+            if "dex_path" in event.metadata:
+                metadata["dex_path"] = event.metadata["dex_path"]
+            if "source_path" in event.metadata:
+                metadata["source_path"] = event.metadata["source_path"]
+            if "body_preview_redacted" in event.metadata:
+                metadata["body_preview_redacted"] = event.metadata["body_preview_redacted"]
+                metadata["payload"] = event.metadata["body_preview_redacted"]
+            if "body_size" in event.metadata:
+                metadata["body_size"] = event.metadata["body_size"]
 
             evidence = builder.add(
-                evidence_type=f"instrumented_{event.observer}",
+                evidence_type=ev_type,
                 description=desc,
-                confidence=0.95 if has_marker else 0.90,
+                confidence=0.95,
                 trust_level=trust_level,
                 process=event.target_package,
-                metadata={
-                    "schema": event.schema,
-                    "observer": event.observer,
-                    "event_type": event.event_type,
-                    "api": event.api,
-                    "event_metadata": event.metadata,
-                },
+                metadata=metadata,
+                timestamp_ms=event.timestamp_ms if event.timestamp_ms > 0 else None,
             )
             if evidence:
                 added.append(evidence)
 
         return added
+
+    @staticmethod
+    def _map_event_to_canonical_type(observer: str, event_type: str) -> str:
+        obs = observer.lower()
+        evt = event_type.upper()
+        if obs == "sms" or evt.startswith("SMS_"):
+            return "sms_access"
+        if obs == "network" or evt in {"HTTP_REQUEST_OBSERVED", "SOCKET_CONNECT_OBSERVED", "URL_OPENED"}:
+            return "network_destination"
+        if obs == "accessibility" or evt.startswith("ACCESSIBILITY_"):
+            return "accessibility_behavior"
+        if obs == "notification" or evt.startswith("NOTIFICATION_"):
+            return "accessibility_behavior"
+        if obs == "dynamic_dex" or evt in {"DEX_CLASS_LOADER_INIT", "PATH_CLASS_LOADER_INIT", "IN_MEMORY_DEX_LOADED", "DEX_FILE_LOADED"}:
+            return "dynamic_code_load"
+        if obs == "webview" or evt.startswith("WEBVIEW_"):
+            return "webview_activity"
+        return f"instrumented_{obs}"
 
     def run_observers(
         self,

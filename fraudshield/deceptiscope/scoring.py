@@ -99,7 +99,12 @@ RULES: tuple[Rule, ...] = (
 def _runtime_otp(evidence: list[dict[str, Any]], _ctx: dict[str, Any]) -> tuple[bool, list[str], list[str]]:
     delivered = [ev for ev in evidence if ev.get("evidence_type") == "synthetic_sms_delivered"]
     accessed = [ev for ev in evidence if ev.get("evidence_type") in {"sms_access", "synthetic_marker_correlation"}]
-    if delivered and accessed:
+    has_trusted_runtime = any(
+        str(ev.get("trust_level")) in {"INSTRUMENTED", "PAYLOAD_CORRELATED"}
+        or float(ev.get("confidence", 0.0) or 0.0) >= 0.8
+        for ev in (delivered + accessed)
+    )
+    if delivered and accessed and has_trusted_runtime:
         matched_ids = [str(ev.get("evidence_id")) for ev in (delivered + accessed) if ev.get("evidence_id")]
         artifacts = [str(ev.get("description", "")) for ev in accessed]
         return True, matched_ids, artifacts
@@ -116,9 +121,7 @@ def _runtime_exfil(evidence: list[dict[str, Any]], _ctx: dict[str, Any]) -> tupl
     has_payload_correlation = any(
         str(ev.get("trust_level")) == "PAYLOAD_CORRELATED"
         or ev.get("metadata", {}).get("payload_correlated") is True
-        or "BOI-TEST" in str(ev.get("metadata", {}).get("destination", ""))
-        or "BOI-TEST" in str(ev.get("metadata", {}).get("payload", ""))
-        for ev in network
+        for ev in (markers + network)
     )
     if markers and network and has_payload_correlation:
         matched_ids = [str(ev.get("evidence_id")) for ev in (markers + network) if ev.get("evidence_id")]

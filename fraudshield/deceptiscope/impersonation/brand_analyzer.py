@@ -214,7 +214,10 @@ class BrandImpersonationAnalyzer:
             reasons.append("Credential or OTP interception capability detected")
 
         if not is_trusted_sig and (keywords_detected or label_similarity >= 0.60):
-            reasons.append("Untrusted signing certificate (Not signed by official bank identity)")
+            if not profile.trusted_signer_fingerprints:
+                reasons.append("Official signer inventory not configured for target bank")
+            else:
+                reasons.append("Untrusted signing certificate (Not signed by official bank identity)")
 
         impersonation_score = max(0.0, min(1.0, score))
 

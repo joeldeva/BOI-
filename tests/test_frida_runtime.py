@@ -54,9 +54,9 @@ def test_valid_frida_event_normalization() -> None:
     evidence = host.normalize_to_evidence([event], builder)
     assert len(evidence) == 1
     assert evidence[0].evidence_id == "R001"
-    assert evidence[0].trust_level == EvidenceTrustLevel.PAYLOAD_CORRELATED
+    assert evidence[0].trust_level == EvidenceTrustLevel.INSTRUMENTED
     assert evidence[0].confidence == 0.95
-    assert "correlated synthetic test marker" in evidence[0].description
+    assert "synthetic marker detected in memory" in evidence[0].description
 
 
 # ---------------------------------------------------------------------------

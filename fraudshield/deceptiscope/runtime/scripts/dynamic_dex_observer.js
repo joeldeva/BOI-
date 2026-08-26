@@ -7,7 +7,8 @@
         // 1. DexClassLoader.<init>
         try {
             var DexClassLoader = Java.use("dalvik.system.DexClassLoader");
-            DexClassLoader.$init.implementation = function(dexPath, optimizedDirectory, librarySearchPath, parent) {
+            var originalDexInit = DexClassLoader.$init.overload("java.lang.String", "java.lang.String", "java.lang.String", "java.lang.ClassLoader");
+            originalDexInit.implementation = function(dexPath, optimizedDirectory, librarySearchPath, parent) {
                 try {
                     send({
                         schema: "deceptiscope.runtime.v1",
@@ -24,14 +25,15 @@
                         }
                     });
                 } catch(e) {}
-                return this.$init(dexPath, optimizedDirectory, librarySearchPath, parent);
+                return originalDexInit.call(this, dexPath, optimizedDirectory, librarySearchPath, parent);
             };
-        } catch(err) {}
+        } catch(err1) {}
 
         // 2. InMemoryDexClassLoader.<init>
         try {
             var InMemoryDexClassLoader = Java.use("dalvik.system.InMemoryDexClassLoader");
-            InMemoryDexClassLoader.$init.overload("java.nio.ByteBuffer", "java.lang.ClassLoader").implementation = function(buffer, parent) {
+            var originalInMemoryInit = InMemoryDexClassLoader.$init.overload("java.nio.ByteBuffer", "java.lang.ClassLoader");
+            originalInMemoryInit.implementation = function(buffer, parent) {
                 try {
                     var capacity = buffer ? buffer.capacity() : 0;
                     send({
@@ -47,14 +49,15 @@
                         }
                     });
                 } catch(e) {}
-                return this.$init(buffer, parent);
+                return originalInMemoryInit.call(this, buffer, parent);
             };
-        } catch(err) {}
+        } catch(err2) {}
 
         // 3. DexFile.loadDex
         try {
             var DexFile = Java.use("dalvik.system.DexFile");
-            DexFile.loadDex.implementation = function(sourcePathName, outputPathName, flags) {
+            var originalLoadDex = DexFile.loadDex.overload("java.lang.String", "java.lang.String", "int");
+            originalLoadDex.implementation = function(sourcePathName, outputPathName, flags) {
                 try {
                     send({
                         schema: "deceptiscope.runtime.v1",
@@ -70,8 +73,8 @@
                         }
                     });
                 } catch(e) {}
-                return this.loadDex(sourcePathName, outputPathName, flags);
+                return originalLoadDex.call(this, sourcePathName, outputPathName, flags);
             };
-        } catch(err) {}
+        } catch(err3) {}
     });
 })();
