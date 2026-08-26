@@ -65,6 +65,16 @@ class EvidenceItem(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     value: str = Field(default="", max_length=1200)
     confidence: float = Field(ge=0.0, le=1.0)
+    phase: str = Field(default="STATIC", max_length=40)
+    trust_level: str = Field(default="STATIC_MATCH", max_length=40)
+    source_engine: str | None = Field(default=None, max_length=120)
+    source_artifact: str | None = Field(default=None, max_length=200)
+    class_name: str | None = Field(default=None, max_length=300)
+    method_name: str | None = Field(default=None, max_length=200)
+    call_site: str | None = Field(default=None, max_length=500)
+    code_context: str | None = Field(default=None, max_length=1200)
+    code_ownership: str = Field(default="APPLICATION_CODE", max_length=60)
+    timestamp_ms: int | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -143,6 +153,16 @@ class EvidenceNormalizer:
             value: Any,
             confidence: float,
             metadata: dict[str, Any] | None = None,
+            phase: str = "STATIC",
+            trust_level: str = "STATIC_MATCH",
+            source_engine: str | None = None,
+            source_artifact: str | None = None,
+            class_name: str | None = None,
+            method_name: str | None = None,
+            call_site: str | None = None,
+            code_context: str | None = None,
+            code_ownership: str = "APPLICATION_CODE",
+            timestamp_ms: int | None = None,
         ) -> None:
             raw.append(
                 {
@@ -151,16 +171,26 @@ class EvidenceNormalizer:
                     "title": _clip(title, 300),
                     "value": _clip(_stringify(value), 1200),
                     "confidence": max(0.0, min(1.0, float(confidence))),
+                    "phase": phase,
+                    "trust_level": trust_level,
+                    "source_engine": source_engine,
+                    "source_artifact": source_artifact,
+                    "class_name": class_name,
+                    "method_name": method_name,
+                    "call_site": _clip(call_site, 500) if call_site else None,
+                    "code_context": _clip(code_context, 1200) if code_context else None,
+                    "code_ownership": code_ownership,
+                    "timestamp_ms": timestamp_ms,
                     "metadata": _compact_metadata(metadata or {}),
                 }
             )
 
         if app.get("package_name"):
-            add("identity", "apk-manifest", "Package name", app["package_name"], 0.95)
+            add("identity", "apk-manifest", "Package name", app["package_name"], 0.95, trust_level="DECLARED")
         if app.get("app_label"):
-            add("identity", "apk-manifest", "Application label", app["app_label"], 0.9)
+            add("identity", "apk-manifest", "Application label", app["app_label"], 0.9, trust_level="DECLARED")
         if file_info.get("sha256"):
-            add("file_hash", "apk-archive", "APK SHA-256", file_info["sha256"], 1.0)
+            add("file_hash", "apk-archive", "APK SHA-256", file_info["sha256"], 1.0, trust_level="DECLARED")
 
         dangerous = set(_list_of_strings(permissions.get("flagged_dangerous")))
         for permission in sorted(_list_of_strings(permissions.get("requested"))):
@@ -171,6 +201,7 @@ class EvidenceNormalizer:
                 permission,
                 0.95,
                 {"flagged_dangerous": permission in dangerous},
+                trust_level="DECLARED",
             )
 
         capability_map = {
@@ -180,7 +211,7 @@ class EvidenceNormalizer:
         }
         for key, title in capability_map.items():
             if components.get(key):
-                add("manifest_capability", "apk-manifest", title, key, 0.9)
+                add("manifest_capability", "apk-manifest", title, key, 0.9, trust_level="DECLARED")
 
         for item in sorted(
             _list_of_dicts(components.get("exported")),
@@ -193,6 +224,7 @@ class EvidenceNormalizer:
                 item.get("name", ""),
                 0.85,
                 {"component_type": item.get("type", "unknown")},
+                trust_level="DECLARED",
             )
 
         for signal_name, signal in sorted((extraction.get("code_signals") or {}).items()):
@@ -204,15 +236,49 @@ class EvidenceNormalizer:
                     ", ".join(_list_of_strings(signal.get("evidence"))[:12]),
                     0.8,
                     {"signal": signal_name},
+                    trust_level="STATIC_MATCH",
                 )
+
+        # Method-level reverse engineering behavioral matches
+        for m in extraction.get("method_level_evidence", {}).get("matches", [])[:40]:
+            if not isinstance(m, dict):
+                continue
+            sig_id = m.get("signature_id", "MTH")
+            sig_title = m.get("signature_title", "Method Behavior")
+            cls_name = m.get("class_name", "")
+            mth_name = m.get("method_name", "")
+            pat = m.get("matched_pattern", "")
+            add(
+                evidence_type="method_behavior",
+                source="dex-reverse-engineering",
+                title=f"[{sig_id}] {sig_title}",
+                value=f"{cls_name}->{mth_name}() | {pat}",
+                confidence=0.95,
+                phase="STATIC",
+                trust_level="STATIC_MATCH",
+                source_engine=m.get("source_engine", "androguard-dvm"),
+                source_artifact=m.get("dex_source", "classes.dex"),
+                class_name=cls_name,
+                method_name=mth_name,
+                call_site=m.get("call_site"),
+                code_context=m.get("code_context"),
+                code_ownership=m.get("code_ownership", "APPLICATION_CODE"),
+                metadata={
+                    "signature_id": sig_id,
+                    "category": m.get("category"),
+                    "severity": m.get("severity"),
+                    "sdk_name": m.get("sdk_name"),
+                    "matched_pattern": pat,
+                },
+            )
 
         network = extraction.get("network_indicators", {})
         for key, evidence_type in (("domains", "domain"), ("ips", "ip"), ("urls", "url")):
             for value in sorted(_list_of_strings(network.get(key))):
-                add(evidence_type, "static-string-scan", key[:-1].upper(), value, 0.75)
+                add(evidence_type, "static-string-scan", key[:-1].upper(), value, 0.75, trust_level="STATIC_MATCH")
 
         if certificate.get("sha256"):
-            add("certificate", "apk-signature", "Certificate SHA-256", certificate["sha256"], 0.9)
+            add("certificate", "apk-signature", "Certificate SHA-256", certificate["sha256"], 0.9, trust_level="DECLARED")
         if certificate.get("trust_evaluation"):
             add(
                 "certificate",
@@ -220,6 +286,7 @@ class EvidenceNormalizer:
                 "Certificate trust evaluation",
                 certificate["trust_evaluation"],
                 0.85,
+                trust_level="DECLARED",
             )
         if certificate.get("bank_impersonation_flag"):
             add(
@@ -228,11 +295,12 @@ class EvidenceNormalizer:
                 "Bank identity absent from trusted signer inventory",
                 "bank_impersonation_flag",
                 0.85,
+                trust_level="STATIC_MATCH",
             )
 
         file_payloads = file_info.get("embedded_payloads", [])
         for payload in sorted(_list_of_strings(file_payloads)):
-            add("embedded_payload", "apk-archive", "Embedded payload", payload, 0.75)
+            add("embedded_payload", "apk-archive", "Embedded payload", payload, 0.75, phase="PAYLOAD", trust_level="STATIC_MATCH")
 
         for finding in findings.get("engine_analysis", {}).get("normalized_findings", [])[:50]:
             if not isinstance(finding, dict):
@@ -250,6 +318,8 @@ class EvidenceNormalizer:
                     "score_eligible": finding.get("score_eligible"),
                     "severity": finding.get("severity"),
                 },
+                trust_level="STATIC_MATCH",
+                source_engine=str(finding.get("engine", "engine")),
             )
 
         for item in findings.get("risk", {}).get("evidence", []):
@@ -268,6 +338,7 @@ class EvidenceNormalizer:
                     "artifacts": _list_of_strings(item.get("artifacts"))[:10],
                     "source_finding_id": item.get("source_finding_id"),
                 },
+                trust_level="INFERRED",
             )
 
         for contribution in findings.get("fraud_delta", {}).get("contributions", []):
@@ -280,6 +351,7 @@ class EvidenceNormalizer:
                 str(contribution.get("evidence", "")),
                 0.9,
                 {"weight": contribution.get("weight"), "reason": contribution.get("reason")},
+                trust_level="INFERRED",
             )
 
         for technique in findings.get("mitre_attack", []):
@@ -292,6 +364,8 @@ class EvidenceNormalizer:
                 str(technique.get("name", "")),
                 0.8,
                 {"evidence": _list_of_strings(technique.get("evidence"))[:10], "source": technique.get("source")},
+                phase="INTELLIGENCE",
+                trust_level="EXTERNAL_INTELLIGENCE",
             )
 
         for item in findings.get("runtime_evidence", []):
@@ -309,6 +383,9 @@ class EvidenceNormalizer:
                     "process": item.get("process"),
                     "metadata": item.get("metadata", {}),
                 },
+                phase="RUNTIME",
+                trust_level=item.get("trust_level", "SYSTEM_OBSERVED"),
+                timestamp_ms=item.get("timestamp_ms"),
             )
 
         return self._assign_ids(raw)
@@ -334,6 +411,16 @@ class EvidenceNormalizer:
                     title=item["title"],
                     value=item["value"],
                     confidence=item["confidence"],
+                    phase=item.get("phase", "STATIC"),
+                    trust_level=item.get("trust_level", "STATIC_MATCH"),
+                    source_engine=item.get("source_engine"),
+                    source_artifact=item.get("source_artifact"),
+                    class_name=item.get("class_name"),
+                    method_name=item.get("method_name"),
+                    call_site=item.get("call_site"),
+                    code_context=item.get("code_context"),
+                    code_ownership=item.get("code_ownership", "APPLICATION_CODE"),
+                    timestamp_ms=item.get("timestamp_ms"),
                     metadata=item["metadata"],
                 )
             )

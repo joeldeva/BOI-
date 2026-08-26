@@ -270,6 +270,16 @@ export interface InvestigationEvidenceItem {
   title: string;
   value: string;
   confidence: number;
+  phase?: string;
+  trust_level?: string;
+  source_engine?: string | null;
+  source_artifact?: string | null;
+  class_name?: string | null;
+  method_name?: string | null;
+  call_site?: string | null;
+  code_context?: string | null;
+  code_ownership?: string;
+  timestamp_ms?: number | null;
   metadata: JsonObject;
 }
 

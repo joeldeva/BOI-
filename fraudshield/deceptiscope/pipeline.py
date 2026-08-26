@@ -15,6 +15,7 @@ from fraudshield.deceptiscope.fraud_delta import FraudDeltaCalculator
 from fraudshield.deceptiscope.investigation import AIInvestigatorClient
 from fraudshield.deceptiscope.mitre import map_mitre_mobile
 from fraudshield.deceptiscope.narrative import LLMNarrativeClient
+from fraudshield.deceptiscope.reverse import MethodLevelAnalyzer
 from fraudshield.deceptiscope.scoring import RiskScorer
 
 
@@ -37,6 +38,7 @@ class APKAnalysisPipeline:
         self.ai_investigator = AIInvestigatorClient(settings)
         self.dynamic = DynamicLiteAnalyzer(settings)
         self.engines = MultiEngineAnalyzer(settings)
+        self.reverse_analyzer = MethodLevelAnalyzer()
 
     def analyze_uploaded(
         self,
@@ -58,6 +60,11 @@ class APKAnalysisPipeline:
         self.analyses.mark_running(record["id"])
         try:
             extraction = StaticAPKExtractor(path, self.settings, original_name=original_name).extract()
+            package_name = extraction.get("app", {}).get("package_name")
+            method_evidence = self.reverse_analyzer.analyze(path, app_package=package_name)
+            extraction["method_level_evidence"] = method_evidence
+            if "coverage" in extraction and isinstance(extraction["coverage"], dict):
+                extraction["coverage"]["reverse_engineering"] = (method_evidence.get("status") == "completed")
             engine_analysis = self.engines.analyze(
                 path,
                 sha256=sha256,
