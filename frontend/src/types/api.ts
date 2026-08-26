@@ -398,6 +398,45 @@ export interface RecoveredPayload {
   metadata?: JsonObject;
 }
 
+export interface FraudDNAFingerprint {
+  apk_sha256: string;
+  app_identity: string;
+  package_name: string;
+  app_label: string;
+  signer_fingerprints: string[];
+  icon_phash?: string | null;
+  dex_fingerprints: string[];
+  dex_fuzzy_hash?: string | null;
+  behavior_signatures: string[];
+  permissions: string[];
+  banking_capabilities: string[];
+  domains: string[];
+  urls: string[];
+  ips: string[];
+  firebase_project_ids: string[];
+  recovered_payload_hashes: string[];
+}
+
+export interface RelatedSample {
+  sha256: string;
+  similarity: number;
+  reasons: string[];
+  campaign_id?: string | null;
+  app_label?: string | null;
+  package_name?: string | null;
+}
+
+export interface Campaign {
+  campaign_id: string;
+  name: string;
+  member_sha256s: string[];
+  primary_signatures: string[];
+  shared_infrastructure: string[];
+  shared_firebase_projects: string[];
+  shared_signer_fingerprints: string[];
+  created_at?: string | null;
+}
+
 export interface ApkAnalysisResult {
   schema_version: string;
   analysis_id: string;
@@ -431,6 +470,9 @@ export interface ApkAnalysisResult {
   runtime_evidence: RuntimeEvidence[];
   experiment_results: DynamicExperimentResult[];
   recovered_payloads?: RecoveredPayload[];
+  frauddna?: FraudDNAFingerprint;
+  related_samples?: RelatedSample[];
+  campaign?: Campaign;
   extraction: ApkExtractionDetails;
   ai_investigation?: AIInvestigation;
   narrative_metadata: { llm_controls_score: false; source: string; warning: string | null };

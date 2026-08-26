@@ -12,6 +12,7 @@ from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer
 from fraudshield.deceptiscope.engines import MultiEngineAnalyzer, malware_assessment
 from fraudshield.deceptiscope.extractor import StaticAPKExtractor
 from fraudshield.deceptiscope.fraud_delta import FraudDeltaCalculator
+from fraudshield.deceptiscope.frauddna import CampaignCorrelator, FraudDNAExtractor
 from fraudshield.deceptiscope.investigation import AIInvestigatorClient
 from fraudshield.deceptiscope.lineage import DataLineageCorrelator, SyntheticMarkerManager
 from fraudshield.deceptiscope.mitre import map_mitre_mobile
@@ -40,6 +41,8 @@ class APKAnalysisPipeline:
         self.dynamic = DynamicLiteAnalyzer(settings)
         self.engines = MultiEngineAnalyzer(settings)
         self.reverse_analyzer = MethodLevelAnalyzer()
+        self.campaign_correlator = CampaignCorrelator()
+        self.frauddna_extractor = FraudDNAExtractor()
 
     def analyze_uploaded(
         self,
@@ -148,6 +151,17 @@ class APKAnalysisPipeline:
             lineages = DataLineageCorrelator().correlate(runtime_evidence, marker_manager.all_markers())
             payload_lineage_dicts = [pl.model_dump(mode="json") for pl in lineages]
 
+            # FraudDNA Fingerprinting & Campaign Correlation
+            frauddna_fp = self.frauddna_extractor.extract({
+                "extraction": extraction,
+                "engine_analysis": engine_analysis,
+                "recovered_payloads": extraction.get("recovered_payloads", []),
+                "method_level_reverse": method_evidence,
+                "analysis_id": record["id"],
+                "sha256": sha256,
+            })
+            campaign, related_samples = self.campaign_correlator.correlate(frauddna_fp)
+
             findings: dict[str, Any] = {
                 "schema_version": "3.0",
                 "analysis_id": record["id"],
@@ -162,10 +176,14 @@ class APKAnalysisPipeline:
                 "runtime_evidence": runtime_evidence,
                 "experiment_results": experiment_results,
                 "payload_lineage": payload_lineage_dicts,
+                "frauddna": frauddna_fp.model_dump(mode="json"),
+                "related_samples": [r.model_dump(mode="json") for r in related_samples],
                 "decision_notice": (
                     "Analyst decision support only; no automated enforcement or account action is performed."
                 ),
             }
+            if campaign:
+                findings["campaign"] = campaign.model_dump(mode="json")
 
             ai_investigation = self.ai_investigator.verify_and_finalize(
                 status=ai_status,
@@ -279,6 +297,15 @@ class APKAnalysisPipeline:
         }
         emitted = self._emit_candidates(analysis_id, candidates, risk)
         findings["emitted_indicators"] = emitted
+        
+        # FraudDNA Fingerprinting & Campaign Correlation
+        frauddna_fp = self.frauddna_extractor.extract(findings)
+        campaign, related_samples = self.campaign_correlator.correlate(frauddna_fp)
+        findings["frauddna"] = frauddna_fp.model_dump(mode="json")
+        findings["related_samples"] = [r.model_dump(mode="json") for r in related_samples]
+        if campaign:
+            findings["campaign"] = campaign.model_dump(mode="json")
+
         findings["ai_investigation"] = self.ai_investigator.investigate(findings)
         narrative = self.narratives.explain(findings)
         findings["narrative_metadata"] = {
