@@ -1,4 +1,4 @@
-FROM node:24-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -13,7 +13,7 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
     VITE_MAX_APK_MB=${VITE_MAX_APK_MB}
 RUN npm run check
 
-FROM nginx:1.28-alpine AS runtime
+FROM nginx:1.27-alpine AS runtime
 
 LABEL org.opencontainers.image.title="FraudShield DeceptiScope" \
       org.opencontainers.image.version="3.0.0" \
