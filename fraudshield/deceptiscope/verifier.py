@@ -134,7 +134,7 @@ class HypothesisVerifier:
             strength = 0.45
             explanation = "OTP hypothesis is statically supported, but runtime confirmation evidence is absent."
         else:
-            status = _downgrade_unconfirmed(hypothesis)
+            status = _downgrade_unconfirmed(hypothesis, has_static_support=static_supported)
             strength = 0.15
             explanation = "OTP hypothesis lacks deterministic static and runtime support."
 
@@ -416,7 +416,7 @@ def _verification(
 
 
 def _otp_static_signals(findings: dict[str, Any]) -> list[str]:
-    extraction = findings.get("extraction", {})
+    extraction = findings.get("extraction") if isinstance(findings.get("extraction"), dict) else findings
     permissions = set(extraction.get("permissions", {}).get("requested", []))
     components = extraction.get("components", {})
     signals = extraction.get("code_signals", {})
@@ -433,14 +433,15 @@ def _otp_static_signals(findings: dict[str, Any]) -> list[str]:
 
 
 def _has_static_network_signal(findings: dict[str, Any]) -> bool:
-    extraction = findings.get("extraction", {})
+    extraction = findings.get("extraction") if isinstance(findings.get("extraction"), dict) else findings
     permissions = set(extraction.get("permissions", {}).get("requested", []))
     network = extraction.get("network_indicators", {})
-    return "android.permission.INTERNET" in permissions or any(network.get(key) for key in ("domains", "ips", "urls"))
+    urls = extraction.get("urls", [])
+    return "android.permission.INTERNET" in permissions or bool(urls) or any(network.get(key) for key in ("domains", "ips", "urls"))
 
 
 def _has_static_accessibility_signal(findings: dict[str, Any]) -> bool:
-    extraction = findings.get("extraction", {})
+    extraction = findings.get("extraction") if isinstance(findings.get("extraction"), dict) else findings
     components = extraction.get("components", {})
     signals = extraction.get("code_signals", {})
     return bool(components.get("accessibility_service") or signals.get("accessibility_api", {}).get("detected"))
@@ -455,7 +456,8 @@ def _runtime_index(findings: dict[str, Any]) -> dict[str, Any]:
 
 
 def _experiment_index(findings: dict[str, Any]) -> dict[str, Any]:
-    items = [item for item in findings.get("experiment_results", []) if isinstance(item, dict)]
+    raw_items = findings.get("experiment_results") or findings.get("dynamic_experiment_results") or []
+    items = [item for item in raw_items if isinstance(item, dict)]
     statuses_by_type: dict[str, list[str]] = {}
     for item in items:
         statuses_by_type.setdefault(str(item.get("experiment_type")), []).append(str(item.get("status")))
@@ -523,8 +525,10 @@ def _experiment_ids(findings: dict[str, Any], experiment_types: list[str]) -> li
     )
 
 
-def _downgrade_unconfirmed(hypothesis: dict[str, Any]) -> str:
+def _downgrade_unconfirmed(hypothesis: dict[str, Any], has_static_support: bool = True) -> str:
     status = str(hypothesis.get("status", "PROPOSED"))
+    if not has_static_support:
+        return "PROPOSED"
     if status == "CONFIRMED":
         return "SUPPORTED"
     if status in {"SUPPORTED", "CONTRADICTED", "INCONCLUSIVE"}:

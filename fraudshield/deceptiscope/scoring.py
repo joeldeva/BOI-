@@ -456,3 +456,6 @@ class RiskScorer:
         if score >= 25:
             return "MEDIUM"
         return "LOW"
+
+
+DeterministicScorer = RiskScorer

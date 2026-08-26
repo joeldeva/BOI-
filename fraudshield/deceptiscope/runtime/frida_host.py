@@ -10,8 +10,6 @@ from fraudshield.deceptiscope.runtime.runtime_models import (
     EvidenceTrustLevel,
     FridaRuntimeEvent,
     RuntimeObserverStatus,
-    VALID_EVENT_TYPES,
-    VALID_OBSERVERS,
 )
 
 if TYPE_CHECKING:
@@ -42,11 +40,8 @@ class FridaHost:
 
     def status(self) -> dict[str, Any]:
         """Checks if Frida runtime capability is available on the host and emulator."""
-        try:
-            import frida  # type: ignore
-            frida_installed = True
-        except ImportError:
-            frida_installed = False
+        import importlib.util
+        frida_installed = importlib.util.find_spec("frida") is not None
 
         return {
             "enabled": self.settings.dynamic_analysis_enabled,

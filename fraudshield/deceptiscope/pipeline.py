@@ -13,6 +13,7 @@ from fraudshield.deceptiscope.engines import MultiEngineAnalyzer, malware_assess
 from fraudshield.deceptiscope.extractor import StaticAPKExtractor
 from fraudshield.deceptiscope.fraud_delta import FraudDeltaCalculator
 from fraudshield.deceptiscope.investigation import AIInvestigatorClient
+from fraudshield.deceptiscope.lineage import DataLineageCorrelator, SyntheticMarkerManager
 from fraudshield.deceptiscope.mitre import map_mitre_mobile
 from fraudshield.deceptiscope.narrative import LLMNarrativeClient
 from fraudshield.deceptiscope.reverse import MethodLevelAnalyzer
@@ -142,6 +143,11 @@ class APKAnalysisPipeline:
                         plan_item["status"] = "SKIPPED"
                         plan_item["unsupported_reason"] = "Dynamic analysis was not requested"
 
+            marker_manager = SyntheticMarkerManager()
+            marker_manager.create_otp_marker(custom_value="BOI-TEST-749231")
+            lineages = DataLineageCorrelator().correlate(runtime_evidence, marker_manager.all_markers())
+            payload_lineage_dicts = [pl.model_dump(mode="json") for pl in lineages]
+
             findings: dict[str, Any] = {
                 "schema_version": "3.0",
                 "analysis_id": record["id"],
@@ -155,6 +161,7 @@ class APKAnalysisPipeline:
                 "emitted_indicators": [],
                 "runtime_evidence": runtime_evidence,
                 "experiment_results": experiment_results,
+                "payload_lineage": payload_lineage_dicts,
                 "decision_notice": (
                     "Analyst decision support only; no automated enforcement or account action is performed."
                 ),
