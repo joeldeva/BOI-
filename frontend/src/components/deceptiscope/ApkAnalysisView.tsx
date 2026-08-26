@@ -129,6 +129,35 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
             <Download className="w-4 h-4" />Download evidence PDF
           </button>
         </div>
+        {/* Autonomous Investigation Pipeline Stepper */}
+        <div className="p-3.5 rounded-xl bg-gradient-to-r from-blue-950/40 via-purple-950/30 to-emerald-950/40 border border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+            <div className="flex items-center gap-1.5 text-blue-300">
+              <span className="w-5 h-5 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-[10px] font-bold">1</span>
+              <span className="font-semibold">Static DEX Ingestion</span>
+            </div>
+            <span className="text-slate-600 hidden sm:inline">→</span>
+            <div className="flex items-center gap-1.5 text-violet-300">
+              <span className="w-5 h-5 rounded-full bg-violet-500/20 border border-violet-500/40 flex items-center justify-center text-[10px] font-bold">2</span>
+              <span className="font-semibold">AI Hypothesis Formed</span>
+            </div>
+            <span className="text-slate-600 hidden sm:inline">→</span>
+            <div className="flex items-center gap-1.5 text-cyan-300">
+              <span className="w-5 h-5 rounded-full bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-[10px] font-bold">3</span>
+              <span className="font-semibold">Frida Sandbox Experiment</span>
+            </div>
+            <span className="text-slate-600 hidden sm:inline">→</span>
+            <div className="flex items-center gap-1.5 text-emerald-300">
+              <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-[10px] font-bold">4</span>
+              <span className="font-semibold">Deterministic Lineage Proof</span>
+            </div>
+            <span className="text-slate-600 hidden sm:inline">→</span>
+            <div className="flex items-center gap-1.5 text-orange-300">
+              <span className="w-5 h-5 rounded-full bg-orange-500/20 border border-orange-500/40 flex items-center justify-center text-[10px] font-bold">5</span>
+              <span className="font-semibold">Risk Escalation (+{risk.runtime_adjustment ?? 0})</span>
+            </div>
+          </div>
+        </div>
 
         {/* Malware Assessment Banner */}
         <div className={`p-4 rounded-lg border ${verdictStyle[assessment.verdict] ?? verdictStyle.INCONCLUSIVE}`}>
@@ -139,10 +168,22 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
               <ShieldAlert className="w-5 h-5 shrink-0 mt-0.5" />
             )}
             <div className="space-y-1">
-              <p className="font-mono text-xs font-extrabold tracking-wider">
-                MALWARE ASSESSMENT: {assessment.verdict.replaceAll('_', ' ')}
-              </p>
-              <p className="text-sm">{assessment.explanation}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-mono text-xs font-extrabold tracking-wider">
+                  MALWARE ASSESSMENT: {assessment.verdict.replaceAll('_', ' ')}
+                </p>
+                {result.brand_impersonation?.target_bank_name && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-red-500/20 text-red-300 border border-red-500/30">
+                    TARGET: {result.brand_impersonation.target_bank_name}
+                  </span>
+                )}
+                {result.campaign && (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                    CAMPAIGN: {result.campaign.campaign_id}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm font-medium">{assessment.explanation}</p>
               <p className="text-xs opacity-90">
                 <strong>Legitimacy:</strong> not established · <strong>Safe to install:</strong> no such claim is made · <strong>Known malware:</strong> {String(assessment.known_malware)}
               </p>
@@ -181,21 +222,31 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
           ))}
         </div>
 
-        {/* Score Progression Strip */}
-        <div className="flex flex-wrap items-center gap-3 p-3.5 rounded-lg bg-slate-950/80 border border-slate-800 text-xs">
-          <span className="font-mono text-slate-400">Model: <strong className="text-white">{risk.model_version}</strong></span>
-          <span className="text-slate-600">|</span>
-          <span className="text-slate-300">Static Risk: <strong className="font-mono text-blue-400">{risk.static_score ?? risk.overall_score}</strong></span>
-          <span className="text-slate-600">+</span>
-          <span className="text-slate-300">Verified Runtime Adjustment: <strong className="font-mono text-emerald-400">+{risk.runtime_adjustment ?? 0}</strong></span>
-          <span className="text-slate-600">=</span>
-          <span className="text-slate-300">Final Fraud Risk: <strong className="font-mono text-orange-400">{risk.overall_score}</strong></span>
-          {risk.runtime_confirmation !== undefined && risk.runtime_confirmation > 0 && (
-            <>
-              <span className="text-slate-600">|</span>
-              <span className="text-slate-400 font-mono">Runtime Confirmation: <strong className="text-emerald-300">{(risk.runtime_confirmation * 100).toFixed(0)}%</strong></span>
-            </>
-          )}
+        {/* Two-Stage Score Progression Strip */}
+        <div className="flex flex-wrap items-center gap-3 p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs shadow-inner">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">STATIC BASELINE</span>
+            <strong className="font-mono text-sm text-blue-400">{risk.static_score ?? risk.overall_score}</strong>
+          </div>
+          <span className="text-slate-600 font-bold text-sm">+</span>
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">RUNTIME PROOF</span>
+            <strong className="font-mono text-sm text-emerald-400">+{risk.runtime_adjustment ?? 0}</strong>
+          </div>
+          <span className="text-slate-600 font-bold text-sm">=</span>
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30">FINAL FRAUD RISK</span>
+            <strong className="font-mono text-base text-orange-400 font-extrabold">{risk.overall_score}/100</strong>
+          </div>
+          <div className="ml-auto flex items-center gap-2 text-slate-400 font-mono text-[11px]">
+            <span>Model: <strong className="text-slate-200">{risk.model_version}</strong></span>
+            {risk.runtime_confirmation !== undefined && risk.runtime_confirmation > 0 && (
+              <>
+                <span className="text-slate-600">|</span>
+                <span>Runtime Proof: <strong className="text-emerald-300">{(risk.runtime_confirmation * 100).toFixed(0)}%</strong></span>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Quick Investigation Summary Pill Strip */}
@@ -218,14 +269,14 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
             <p className="text-xs font-mono font-bold text-amber-300">
               {payloadCount} Recovered Payload{payloadCount === 1 ? '' : 's'}
             </p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Recursive Static Analysis</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Dynamic In-Memory Bytecode</p>
           </div>
           <div className="p-2.5 rounded bg-slate-950/70 border border-slate-800 text-center">
             <p className="text-xs font-mono font-bold text-cyan-300">
-              {result.campaign ? result.campaign.campaign_id : 'Single Sample'}
+              {relatedCount} Correlated Sample{relatedCount === 1 ? '' : 's'}
             </p>
             <p className="text-[10px] text-slate-400 mt-0.5">
-              {relatedCount} Correlated APK{relatedCount === 1 ? '' : 's'}
+              {result.campaign ? `Campaign ${result.campaign.campaign_id}` : 'FraudDNA Cluster'}
             </p>
           </div>
         </div>
