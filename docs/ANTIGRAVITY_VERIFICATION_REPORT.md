@@ -189,16 +189,16 @@ Invoke-WebRequest http://127.0.0.1:8000/docs
 
 | Modified File | Reason for Change |
 |---|---|
-| [`pyproject.toml`](file:///c:/Users/devaj/OneDrive/Documents/BOI%20HACK/FraudShield_DeceptiScope_v3.0.0/pyproject.toml) | Added `"six>=1.16,<2"` to `[project.optional-dependencies].analysis` for durable dependency declaration. |
-| [`fraudshield/__init__.py`](file:///c:/Users/devaj/OneDrive/Documents/BOI%20HACK/FraudShield_DeceptiScope_v3.0.0/fraudshield/__init__.py) | Added project-owned compatibility adapter mapping `sys.modules["pip._vendor.six"] = six` upon package initialization. |
-| [`fraudshield/deceptiscope/engines.py`](file:///c:/Users/devaj/OneDrive/Documents/BOI%20HACK/FraudShield_DeceptiScope_v3.0.0/fraudshield/deceptiscope/engines.py) | Added `_quark_available()` helper supporting nested rule repositories (`rglob("*.json")`), ensured similarity compatibility shim, and bounded timeouts. |
-| [`Dockerfile`](file:///c:/Users/devaj/OneDrive/Documents/BOI%20HACK/FraudShield_DeceptiScope_v3.0.0/Dockerfile) | Upgraded to multi-stage build installing `.[production,analysis]` and Debian `apksigner` and `curl` packages with non-root security. |
-| [`.env`](file:///c:/Users/devaj/OneDrive/Documents/BOI%20HACK/FraudShield_DeceptiScope_v3.0.0/.env) | Enabled `FRAUDSHIELD_QUARK_ENABLED=true`, configured Android SDK `apksigner.bat` path. |
-| [`docs/ARCHITECTURE.md`](file:///c:/Users/devaj/OneDrive/Documents/BOI%20HACK/FraudShield_DeceptiScope_v3.0.0/docs/ARCHITECTURE.md) | Converted ASCII diagrams to clean Mermaid flowcharts and stage tables. |
+| [`pyproject.toml`](../pyproject.toml) | Added `"six>=1.16,<2"` to `[project.optional-dependencies].analysis` for durable dependency declaration. |
+| [`fraudshield/__init__.py`](../fraudshield/__init__.py) | Added project-owned compatibility adapter mapping `sys.modules["pip._vendor.six"] = six` upon package initialization. |
+| [`fraudshield/deceptiscope/engines.py`](../fraudshield/deceptiscope/engines.py) | Added `_quark_available()` helper supporting nested rule repositories (`rglob("*.json")`), ensured similarity compatibility shim, and bounded timeouts. |
+| [`Dockerfile`](../Dockerfile) | Upgraded to multi-stage build installing `.[production,analysis]` and Debian `apksigner` and `curl` packages with non-root security. |
+| [`.env`](../.env) | Enabled `FRAUDSHIELD_QUARK_ENABLED=true`, configured Android SDK `apksigner.bat` path. |
+| [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) | Converted ASCII diagrams to clean Mermaid flowcharts and stage tables. |
 
 ---
 
 ## 13. Final Verification Classification
 
-# **READY FOR HACKATHON DEMO**
-*(With all 7 local analysis engines fully active, verified, and complete on real APK workloads)*
+# **HACKATHON READY / DEMO READY**
+*(With all 7 local analysis engines, closed-loop AI investigator, deterministic verifier, and apk-risk-2026.5 scoring active and verified on real APK workloads)*

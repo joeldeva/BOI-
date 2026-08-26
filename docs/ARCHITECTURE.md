@@ -1,30 +1,20 @@
 # Architecture
-
+ 
 ```mermaid
 flowchart TD
-    Client["Browser / API Client"] --> Edge["FastAPI Edge (Auth, RBAC, Limits, Audit)"]
-    Edge --> DB[("PostgreSQL: Analyses, Indicators, Jobs, Audit Chain")]
-    Edge --> S3[("S3/KMS or Local Storage")]
-    Edge --> Worker["Durable APK Worker (Isolated Sandbox)"]
-    
-    subgraph Extraction["Multi-Engine Static Extraction"]
-        Worker --> Arch["Guarded Archive + Androguard Extraction"]
-        Worker --> Native["Native Inventory & Tracker Markers"]
-        Worker --> OptEngines["Optional APKiD / YARA / apksigner / Similarity / Quark"]
-        Worker --> MobSF["Optional Private MobSF (Gated Transfer)"]
-        Worker --> Rep["Optional VirusTotal / MalwareBazaar (SHA-256 Only)"]
-    end
-
-    Arch & Native & OptEngines & MobSF & Rep --> Norm["Normalized Evidence"]
-    Norm --> Delta["Category-Relative Fraud Delta"]
-    Delta --> Score["Deterministic Risk Scoring (0-100)"]
-    Score --> Assessment["Malware Assessment & MITRE ATT&CK Mappings"]
-    
-    subgraph Outputs["Artifact Generation & Intelligence"]
-        Assessment --> Report["4-Page PDF Forensic Report"]
-        Assessment --> Ind["Threat Indicator Sightings"]
-        Assessment --> Narr["Deterministic / Grounded Narrative"]
-    end
+    APK["1. APK Upload"] --> Guard["2. Guarded Ingestion (ZIP/Bomb/Path/Size Checks)"]
+    Guard --> Static["3. Static Extraction (Manifest, DEX, Certs, Strings)"]
+    Static --> MultiEng["4. Multi-Engine Analysis (APKiD, YARA, apksigner, Quark, MobSF)"]
+    MultiEng --> InitRisk["5. Initial Deterministic Static Risk (static_score)"]
+    InitRisk --> AI["6. AI Investigator (Evidence-Grounded Hypotheses)"]
+    AI --> Planner["7. Safe Experiment Planner (Constrained Whitelist)"]
+    Planner --> Executor["8. Trusted Experiment Executor (ADB Dispatcher)"]
+    Executor --> Runtime["9. Isolated Emulator / Dynamic Runtime"]
+    Runtime --> Ev["10. Runtime Evidence (Trust Provenance Taxonomy)"]
+    Ev --> Verifier["11. Deterministic Verifier (Category Verification Rules)"]
+    Verifier --> FinalRisk["12. Runtime-Aware Deterministic Risk (apk-risk-2026.5)"]
+    FinalRisk --> Assessment["13. Malware Assessment & MITRE ATT&CK Mappings"]
+    Assessment --> Output["14. Outputs: Narrative Generator, PDF Report, IoCs, Frontend UI"]
 ```
 
 ### Pipeline Stages
@@ -35,8 +25,14 @@ flowchart TD
 | **2. Hostile Archive Validation** | Guarded Archive Engine | Enforces ZIP limits (20k entries, 500MB uncompressed), rejects directory traversal and zip bombs |
 | **3. Static Evidence Extraction** | Androguard & Native Scanners | Extracts manifest, DEX components, permissions, receivers, certificates, URLs/IPs, strings |
 | **4. Multi-Engine Orchestration** | APKiD, YARA, apksigner, Quark, MobSF | Executes available local and gated private engines; reports explicit status for unavailable tools |
-| **5. Deterministic Scoring** | Rule Engine | Calculates 4 sub-scores (Credential Theft, Payment Manipulation, Impersonation, Evasion) + Fraud Delta |
-| **6. Reporting & Indicators** | PDF & Intelligence Store | Emits MITRE ATT&CK Mobile mappings, IoCs (>=50 risk), and comprehensive PDF report |
+| **5. Initial Deterministic Risk** | Scoring Engine (Stage 1) | Computes `static_score` baseline across Credential Theft, Payment Manipulation, Impersonation, Evasion + Fraud Delta |
+| **6. AI Investigation Planning** | AI Investigator | Generates evidence-grounded hypotheses and constrained experiment plan (LLM cannot modify scores) |
+| **7. Safe Experiment Execution** | Dynamic ADB Dispatcher | Injects controlled test signals (e.g. synthetic OTP) into isolated emulator sandbox |
+| **8. Runtime Evidence Extraction** | Dynamic Collectors | Extracts process, logcat, dumpsys, and network observations with explicit `EvidenceTrustLevel` |
+| **9. Deterministic Verification** | Hypothesis Verifier | Evaluates hypotheses against deterministic proof rules; computes `verified_status` and `evidence_strength` |
+| **10. Two-Stage Risk Scoring** | `apk-risk-2026.5` (Stage 2) | $\text{Final Risk} = \min(100, \text{static\_score} + \text{runtime\_adjustment})$; awards capped points for verified behaviors |
+| **11. Assessment & MITRE Mapping** | Assessment Engine | Generates formal verdict (`HIGH_RISK`, `KNOWN_MALICIOUS`, etc.) and MITRE ATT&CK Mobile techniques |
+| **12. Reporting & Explainability** | PDF, IoC, Narrative | Emits indicators ($\ge 50$ risk), provenance graph, investigation timeline, and narrative explanation |
 
 ## Trust boundaries
 
@@ -45,7 +41,9 @@ flowchart TD
 - Analysis workers are a higher-risk tier than the API. Run them without root, without host mounts, with seccomp/AppArmor, resource limits, ephemeral scratch and deny-by-default egress.
 - Public reputation services receive SHA-256 only and are disabled by default.
 - Private MobSF receives the binary only after a separate explicit policy flag.
-- Language models are optional report writers outside the score/classification trust boundary.
+- Two separate AI concepts exist with distinct trust boundaries:
+  - **AI Investigator**: Proposes evidence-grounded hypotheses and constrained experiment plans; executes in closed loop through isolated emulator; results are verified deterministically by code. Never controls scoring.
+  - **Narrative Generator**: Generates human-readable summaries and explanations from verified structured JSON; cannot alter verdicts, scores, or indicators.
 
 ## Persistence
 
@@ -59,17 +57,17 @@ Current tables:
 - `audit_events`
 - `schema_migrations`
 
-The primary result is versioned JSON. A completed analysis includes extraction, engine execution, normalized engine findings, deterministic risk, malware assessment, Fraud Delta, MITRE mappings, indicators and narrative metadata.
+The primary result is versioned JSON. A completed analysis includes extraction, engine execution, normalized engine findings, deterministic risk (`apk-risk-2026.5`), malware assessment, Fraud Delta, MITRE mappings, indicators, runtime evidence, hypothesis verifications, and narrative metadata.
 
 ## Determinism and fail-safe behavior
 
-- Rule scoring is deterministic and versioned.
-- Optional engines cannot silently fail; every run has a status.
+- Rule scoring is deterministic and versioned under `apk-risk-2026.5`.
+- Optional engines cannot silently fail; every run has a status (`completed`, `disabled`, `unavailable`, `failed`, `blocked-by-policy`).
 - Optional local evidence is accepted for scoring only at confidence >=0.7, with at most 25 points per engine/risk dimension.
 - Reputation never lowers a behavioral score.
 - Missing engines, failed lookups, not-found hashes and zero detections never imply safety.
 - Partial base extraction forces an inconclusive assessment unless stronger evidence establishes a higher-risk label.
-- Dynamic-lite observations do not modify the static score.
+- Raw unverified logcat observations do not directly score; only trusted deterministically verified runtime evidence can trigger capped runtime rules (global cap +35 pts).
 
 ## Scaling
 

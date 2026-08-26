@@ -23,9 +23,12 @@ None of these labels proves that an APK is legitimate. The API always returns `l
 2. Reject non-ZIP data, path traversal, duplicate entries, excessive entry counts, and zip-bomb expansion.
 3. Extract bounded archive, Android manifest, DEX, component, permission, certificate, string, network and obfuscation evidence.
 4. Run the multi-engine orchestrator. Every optional engine records `completed`, `disabled`, `unavailable`, `failed`, or `blocked-by-policy`; a missing engine never becomes a clean signal.
-5. Calculate category-relative Fraud Delta and deterministic risk rules. Optional-engine score contributions require normalized local evidence and are capped per engine and risk dimension.
-6. Map supported evidence to MITRE ATT&CK for Mobile, generate the malware assessment, persist the result and emit indicators only for high/critical analyses.
-7. Generate the analyst narrative and PDF. An optional LLM can summarize verified JSON but cannot alter scores, findings, classifications, indicators, or actions.
+5. Calculate category-relative Fraud Delta and deterministic static baseline risk (`static_score`) under `apk-risk-2026.5`.
+6. Run the evidence-grounded AI Investigator to plan safe sandbox experiments; execute verified injections (e.g. synthetic OTP) in an isolated emulator, collect runtime observations with explicit trust levels (`PAYLOAD_CORRELATED`, `INSTRUMENTED`, `SYSTEM_OBSERVED`, `LOG_OBSERVED`, `INFERRED`), verify hypotheses with deterministic verifier rules, and compute capped runtime adjustments.
+7. Map supported evidence to MITRE ATT&CK for Mobile, generate the malware assessment, persist the result and emit indicators only for high/critical analyses.
+8. Generate analyst narrative and forensic report. Two separate AI concepts are strictly maintained:
+   - **AI Investigator**: Proposes evidence-grounded hypotheses and constrained experiment plans; results are verified deterministically by code and AI cannot modify scores.
+   - **Narrative Generator**: Generates human-readable summaries and explanations from verified structured JSON; cannot alter verdicts, scores, or indicators.
 
 ## Engine matrix
 
@@ -41,7 +44,7 @@ None of these labels proves that an APK is legitimate. The API always returns `l
 | MobSF | opt-in | configured private service | Broader self-hosted static analysis; APK transfer requires an explicit flag |
 | VirusTotal | opt-in | external SHA-256 only | Exact-hash reputation; no sample upload |
 | MalwareBazaar | opt-in | external SHA-256 only | Exact-hash reputation; no sample upload |
-| Dynamic-lite ADB | opt-in | isolated emulator only | Bounded runtime observations; excluded from the deterministic score |
+| Dynamic-lite ADB | opt-in | isolated emulator only | Bounded runtime observations with trust provenance; raw logs do not score directly, but trusted deterministically verified evidence contributes capped runtime adjustments under `apk-risk-2026.5` |
 
 The orchestrator is informed by the Pithus project and modernized for the existing FastAPI/PostgreSQL/S3 architecture. It intentionally does not embed Pithus's Django, Elasticsearch, or UI stack. See [Pithus integration](docs/PITHUS_INTEGRATION.md), [third-party notices](THIRD_PARTY_NOTICES.md), and [LICENSE](LICENSE).
 
