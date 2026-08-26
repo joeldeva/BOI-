@@ -13,6 +13,10 @@ from fraudshield.deceptiscope.engines import MultiEngineAnalyzer, malware_assess
 from fraudshield.deceptiscope.extractor import StaticAPKExtractor
 from fraudshield.deceptiscope.fraud_delta import FraudDeltaCalculator
 from fraudshield.deceptiscope.frauddna import CampaignCorrelator, FraudDNAExtractor
+from fraudshield.deceptiscope.impersonation import (
+    BrandImpersonationAnalyzer,
+    FirebaseExtractor,
+)
 from fraudshield.deceptiscope.investigation import AIInvestigatorClient
 from fraudshield.deceptiscope.lineage import DataLineageCorrelator, SyntheticMarkerManager
 from fraudshield.deceptiscope.mitre import map_mitre_mobile
@@ -43,6 +47,8 @@ class APKAnalysisPipeline:
         self.reverse_analyzer = MethodLevelAnalyzer()
         self.campaign_correlator = CampaignCorrelator()
         self.frauddna_extractor = FraudDNAExtractor()
+        self.brand_analyzer = BrandImpersonationAnalyzer()
+        self.firebase_extractor = FirebaseExtractor()
 
     def analyze_uploaded(
         self,
@@ -151,12 +157,22 @@ class APKAnalysisPipeline:
             lineages = DataLineageCorrelator().correlate(runtime_evidence, marker_manager.all_markers())
             payload_lineage_dicts = [pl.model_dump(mode="json") for pl in lineages]
 
+            # Firebase Static Extraction
+            firebase_infra = self.firebase_extractor.extract_from_findings(extraction, apk_path=path)
+
+            # Banking-Brand Impersonation Analysis
+            brand_impersonation = self.brand_analyzer.analyze(
+                extraction=extraction,
+                method_evidence=method_evidence,
+            )
+
             # FraudDNA Fingerprinting & Campaign Correlation
             frauddna_fp = self.frauddna_extractor.extract({
                 "extraction": extraction,
                 "engine_analysis": engine_analysis,
                 "recovered_payloads": extraction.get("recovered_payloads", []),
                 "method_level_reverse": method_evidence,
+                "firebase_infrastructure": firebase_infra.model_dump(mode="json"),
                 "analysis_id": record["id"],
                 "sha256": sha256,
             })
@@ -176,6 +192,8 @@ class APKAnalysisPipeline:
                 "runtime_evidence": runtime_evidence,
                 "experiment_results": experiment_results,
                 "payload_lineage": payload_lineage_dicts,
+                "brand_impersonation": brand_impersonation.model_dump(mode="json"),
+                "firebase_infrastructure": firebase_infra.model_dump(mode="json"),
                 "frauddna": frauddna_fp.model_dump(mode="json"),
                 "related_samples": [r.model_dump(mode="json") for r in related_samples],
                 "decision_notice": (
@@ -298,6 +316,18 @@ class APKAnalysisPipeline:
         emitted = self._emit_candidates(analysis_id, candidates, risk)
         findings["emitted_indicators"] = emitted
         
+        # Firebase Static Extraction
+        firebase_infra = self.firebase_extractor.extract_from_findings(extraction)
+
+        # Banking-Brand Impersonation Analysis
+        brand_impersonation = self.brand_analyzer.analyze(
+            extraction=extraction,
+            method_evidence=extraction.get("method_level_evidence"),
+        )
+
+        findings["brand_impersonation"] = brand_impersonation.model_dump(mode="json")
+        findings["firebase_infrastructure"] = firebase_infra.model_dump(mode="json")
+
         # FraudDNA Fingerprinting & Campaign Correlation
         frauddna_fp = self.frauddna_extractor.extract(findings)
         campaign, related_samples = self.campaign_correlator.correlate(frauddna_fp)

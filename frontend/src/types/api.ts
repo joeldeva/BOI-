@@ -437,6 +437,37 @@ export interface Campaign {
   created_at?: string | null;
 }
 
+export interface FirebaseInfrastructure {
+  project_id?: string | null;
+  mobilesdk_app_id?: string | null;
+  firebase_url?: string | null;
+  storage_bucket?: string | null;
+  gcm_defaultSenderId?: string | null;
+  api_key?: string | null;
+  database_urls: string[];
+  firestore_collections: string[];
+  raw_config_detected: boolean;
+  source: string;
+}
+
+export type BrandImpersonationVerdict = 'VERY_HIGH' | 'HIGH' | 'SUSPICIOUS' | 'NONE' | 'OFFICIAL_LEGITIMATE';
+
+export interface BrandImpersonationResult {
+  target_bank_id?: string | null;
+  target_bank_name?: string | null;
+  app_label_similarity: number;
+  package_name_similarity: number;
+  icon_similarity?: number | null;
+  is_official_package: boolean;
+  is_trusted_signer: boolean;
+  domain_similarity: number;
+  brand_keywords_detected: string[];
+  has_credential_forms: boolean;
+  impersonation_score: number;
+  verdict: BrandImpersonationVerdict;
+  reasons: string[];
+}
+
 export interface ApkAnalysisResult {
   schema_version: string;
   analysis_id: string;
@@ -473,6 +504,8 @@ export interface ApkAnalysisResult {
   frauddna?: FraudDNAFingerprint;
   related_samples?: RelatedSample[];
   campaign?: Campaign;
+  brand_impersonation?: BrandImpersonationResult;
+  firebase_infrastructure?: FirebaseInfrastructure;
   extraction: ApkExtractionDetails;
   ai_investigation?: AIInvestigation;
   narrative_metadata: { llm_controls_score: false; source: string; warning: string | null };

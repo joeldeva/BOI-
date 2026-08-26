@@ -1,0 +1,21 @@
+bank_id: "bank_of_india"
+official_names:
+  - "Bank of India"
+  - "BOI"
+  - "BOI Mobile"
+  - "BOI Omni Neo"
+  - "BOI Mobile Banking"
+known_abbreviations:
+  - "BOI"
+  - "BKID"
+official_domains:
+  - "bankofindia.co.in"
+  - "bankofindia.com"
+  - "boi.co.in"
+official_packages:
+  - "com.boi.mobile"
+  - "com.bankofindia.omni"
+  - "com.boi.retail"
+trusted_signer_fingerprints: []
+reference_icon_assets: []
+reference_icon_phash: null
