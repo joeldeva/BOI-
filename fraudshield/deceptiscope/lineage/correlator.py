@@ -30,6 +30,25 @@ EGRESS_INDICATORS = {
 }
 
 
+def _package_matches(value: Any, target: str) -> bool:
+    candidate = str(value or "")
+    return candidate == target or candidate.startswith(f"{target}:")
+
+
+def _has_positive_target_attribution(ev_dict: dict[str, Any], target_package: str) -> bool:
+    metadata = ev_dict.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    fields = [
+        str(ev_dict.get("process") or ""),
+        str(metadata.get("target_package") or ""),
+    ]
+    populated = [value for value in fields if value]
+    if not populated:
+        return False
+    return all(_package_matches(value, target_package) for value in populated)
+
+
 class LineageStep(BaseModel):
     """A single deterministic observation step in a payload's data lineage."""
 
@@ -105,11 +124,8 @@ class DataLineageCorrelator:
                     continue
 
                 # Enforce target package attribution if target_package is specified
-                if target_package:
-                    proc = str(ev_dict.get("process", ""))
-                    ev_target_pkg = str(ev_dict.get("metadata", {}).get("target_package", ""))
-                    if proc and target_package not in proc and ev_target_pkg and target_package not in ev_target_pkg:
-                        continue
+                if target_package and not _has_positive_target_attribution(ev_dict, target_package):
+                    continue
 
                 matched, transform = self._find_marker_match(ev_dict, marker)
                 if not matched or not transform:
@@ -215,8 +231,8 @@ class DataLineageCorrelator:
             )
             if str(ev.get("evidence_id")) == step.evidence_id:
                 trust = str(ev.get("trust_level", "")).upper()
-                # Logcat or unverified observations cannot produce verified complete exfiltration
-                if trust in {"LOG_OBSERVED", "INFERRED", "UNVERIFIED"}:
+                # Raw outbound body proof must come from trusted instrumentation only.
+                if trust != "INSTRUMENTED":
                     return False
 
                 meta = ev.get("metadata", {})

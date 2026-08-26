@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,7 @@ from fraudshield.core.errors import ConfigurationError, ValidationError
 from fraudshield.deceptiscope.experiments import ExperimentStatus, ExperimentType
 from fraudshield.deceptiscope.runtime.frida_host import FridaHost
 from fraudshield.deceptiscope.runtime.runtime_models import EvidenceTrustLevel
+from fraudshield.deceptiscope.runtime.runtime_models import RuntimeObserverStatus
 
 
 SYNTHETIC_OTP_MARKER = "BOI-TEST-749231"
@@ -41,6 +43,7 @@ DEFAULT_EXPERIMENTS = (
     ExperimentType.FILESYSTEM_DIFF,
     ExperimentType.UI_SCREENSHOT,
 )
+FRIDA_POST_ACTION_GRACE_SECONDS = 1.0
 
 
 class RuntimeEvidence(BaseModel):
@@ -268,16 +271,36 @@ class DynamicLiteAnalyzer:
         before_count = len(builder.items)
 
         obs_names = self.frida_host.registry.get_observers_for_experiments([experiment_type])
-        frida_active = bool(obs_names and self.frida_host.status().get("frida_installed") and state.get("launched"))
+        frida_status = self.frida_host.status()
+        frida_requested = bool(obs_names)
+        frida_available = bool(frida_requested and frida_status.get("frida_installed"))
+        instrumentation: dict[str, Any] | None = None
 
         try:
-            if frida_active:
-                # Start Frida observation session BEFORE executing the experiment action
+            if frida_available:
                 with self.frida_host.observation_session(state.get("package_name", "unknown"), obs_names) as session:
-                    status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
-                    if session.events:
+                    instrumentation = self._instrumentation_metadata(session, obs_names)
+                    session_status = getattr(session, "status", RuntimeObserverStatus.COMPLETED)
+                    if session_status == RuntimeObserverStatus.COMPLETED:
+                        state["_current_frida_session"] = instrumentation
+                        if instrumentation.get("started_target") or instrumentation.get("attached_existing"):
+                            state["launched"] = True
+                    try:
+                        status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
+                        if session_status == RuntimeObserverStatus.COMPLETED:
+                            self._sleep_observer_grace(started, builder)
+                    finally:
+                        state.pop("_current_frida_session", None)
+                    if session_status == RuntimeObserverStatus.COMPLETED and session.events:
                         self.frida_host.normalize_to_evidence(session.events, builder)
             else:
+                if frida_requested:
+                    instrumentation = {
+                        "requested": True,
+                        "status": RuntimeObserverStatus.UNAVAILABLE.value,
+                        "observers": obs_names,
+                        "warnings": ["Frida runtime is unavailable in this environment"],
+                    }
                 status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
             error = None
         except subprocess.TimeoutExpired as exc:
@@ -292,6 +315,12 @@ class DynamicLiteAnalyzer:
             error = _clip(str(exc), 500)
 
         new_ids = [item.evidence_id for item in builder.items[before_count:]]
+        metadata: dict[str, Any] = {}
+        if experiment_type == ExperimentType.SYNTHETIC_SMS:
+            metadata["synthetic_otp_marker"] = state.get("active_marker", SYNTHETIC_OTP_MARKER)
+        if instrumentation:
+            metadata["instrumentation"] = instrumentation
+
         return DynamicExperimentResult(
             experiment_id=experiment_id,
             experiment_type=experiment_type,
@@ -302,10 +331,29 @@ class DynamicLiteAnalyzer:
             summary=summary,
             unavailable_reason=unavailable_reason,
             error=error,
-            metadata={"synthetic_otp_marker": state.get("active_marker", SYNTHETIC_OTP_MARKER)}
-            if experiment_type == ExperimentType.SYNTHETIC_SMS
-            else {},
+            metadata=metadata,
         )
+
+    @staticmethod
+    def _instrumentation_metadata(session: Any, observer_names: list[str]) -> dict[str, Any]:
+        status = getattr(session, "status", RuntimeObserverStatus.COMPLETED)
+        status_value = status.value if isinstance(status, RuntimeObserverStatus) else str(status)
+        return {
+            "requested": True,
+            "status": status_value,
+            "observers": list(observer_names),
+            "spawned_pid": getattr(session, "spawned_pid", None),
+            "attached_existing": bool(getattr(session, "attached_existing", False)),
+            "started_target": bool(getattr(session, "started_target", False)),
+            "warnings": list(getattr(session, "warnings", [])),
+        }
+
+    def _sleep_observer_grace(self, started_at_ms: int, builder: _RuntimeEvidenceBuilder) -> None:
+        elapsed_seconds = max(0.0, (builder.elapsed_ms() - started_at_ms) / 1000.0)
+        remaining_seconds = max(0.0, float(self.settings.dynamic_timeout_seconds) - elapsed_seconds)
+        sleep_seconds = min(FRIDA_POST_ACTION_GRACE_SECONDS, remaining_seconds)
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
 
     def _collect(
         self,
@@ -343,6 +391,30 @@ class DynamicLiteAnalyzer:
         builder: _RuntimeEvidenceBuilder,
     ) -> tuple[ExperimentStatus, str, str | None]:
         package_name = str(state["package_name"])
+        instrumented_session = state.get("_current_frida_session")
+        if isinstance(instrumented_session, dict) and instrumented_session.get("status") == RuntimeObserverStatus.COMPLETED.value:
+            state["launched"] = True
+            started_target = bool(instrumented_session.get("started_target"))
+            attached_existing = bool(instrumented_session.get("attached_existing"))
+            if started_target:
+                description = "Application was started under trusted Frida instrumentation"
+                summary = "Application launch was instrumented from first process start"
+            elif attached_existing:
+                description = "Frida attached to an already-running application process for launch observation"
+                summary = "Application was already running; Frida attached without a second launch"
+            else:
+                description = "Application launch observation used trusted Frida instrumentation"
+                summary = "Application launch observation was instrumented"
+            builder.add(
+                "app_launch",
+                description,
+                confidence=1.0 if started_target else 0.9,
+                trust_level=EvidenceTrustLevel.INSTRUMENTED,
+                metadata=instrumented_session,
+            )
+            self._collect_process_state(state, builder)
+            return ExperimentStatus.COMPLETED, summary, None
+
         launch = self._run("shell", "monkey", "-p", package_name, "-c", "android.intent.category.LAUNCHER", "1")
         launched = "Events injected: 1" in launch
         state["launched"] = launched
@@ -732,47 +804,79 @@ class DynamicLiteAnalyzer:
 
         # Retrieve bytes via adb exec-out cat or run-as
         try:
-            # Try direct cat first
-            cmd = [self.settings.adb_path, "-s", self.settings.adb_emulator_serial, "exec-out", "cat", emulator_path]
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                shell=False,
-                timeout=15,
-                check=False,
-            )
-            data = proc.stdout
-            if proc.returncode != 0 or not data:
-                # Try run-as for private app data if accessible
-                cmd_runas = [
-                    self.settings.adb_path,
-                    "-s",
-                    self.settings.adb_emulator_serial,
-                    "exec-out",
-                    "run-as",
-                    target_package,
-                    "cat",
-                    emulator_path,
-                ]
-                proc_runas = subprocess.run(
-                    cmd_runas,
-                    capture_output=True,
-                    shell=False,
-                    timeout=15,
-                    check=False,
-                )
-                if proc_runas.returncode == 0 and proc_runas.stdout:
-                    data = proc_runas.stdout
+            direct_cmd = [self.settings.adb_path, "-s", self.settings.adb_emulator_serial, "exec-out", "cat", emulator_path]
+            data, direct_error = self._read_adb_stdout_bounded(direct_cmd, max_bytes=max_bytes, timeout_seconds=15)
+            if direct_error and "exceeds maximum allowable limit" in direct_error:
+                return False, None, direct_error
+            if data:
+                return True, data, None
 
-            if not data:
-                return False, None, f"File could not be read or is empty (code {proc.returncode})"
+            runas_cmd = [
+                self.settings.adb_path,
+                "-s",
+                self.settings.adb_emulator_serial,
+                "exec-out",
+                "run-as",
+                target_package,
+                "cat",
+                emulator_path,
+            ]
+            data, runas_error = self._read_adb_stdout_bounded(runas_cmd, max_bytes=max_bytes, timeout_seconds=15)
+            if runas_error and "exceeds maximum allowable limit" in runas_error:
+                return False, None, runas_error
+            if data:
+                return True, data, None
 
-            if len(data) > max_bytes:
-                return False, None, f"File size ({len(data)} bytes) exceeds maximum allowable limit ({max_bytes} bytes)"
-
-            return True, data, None
+            return False, None, f"File could not be read or is empty ({runas_error or direct_error or 'no data'})"
         except Exception as exc:
             return False, None, f"ADB file retrieval failed: {type(exc).__name__}: {str(exc)[:100]}"
+
+    @staticmethod
+    def _read_adb_stdout_bounded(
+        command: list[str],
+        *,
+        max_bytes: int,
+        timeout_seconds: int,
+    ) -> tuple[bytes | None, str | None]:
+        proc = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            shell=False,
+        )
+        if proc.stdout is None:
+            proc.kill()
+            return None, "ADB stdout pipe was unavailable"
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        future = executor.submit(proc.stdout.read, max_bytes + 1)
+        try:
+            data = future.result(timeout=timeout_seconds)
+        except FutureTimeout:
+            proc.kill()
+            future.cancel()
+            return None, "ADB file retrieval timed out"
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
+
+        if len(data) > max_bytes:
+            proc.kill()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+            return None, f"File size exceeds maximum allowable limit ({max_bytes} bytes)"
+
+        try:
+            returncode = proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            return None, "ADB file retrieval did not finish cleanly"
+
+        if returncode != 0:
+            return None, f"ADB read failed with code {returncode}"
+        return data, None
 
 
 def _description_for_log_evidence(evidence_type: str) -> str:

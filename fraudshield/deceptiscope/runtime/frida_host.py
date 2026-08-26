@@ -202,6 +202,9 @@ class FridaObservationSession:
         self.status = RuntimeObserverStatus.UNAVAILABLE
         self.events: list[FridaRuntimeEvent] = []
         self.warnings: list[str] = []
+        self.spawned_pid: int | None = None
+        self.attached_existing = False
+        self.started_target = False
         self._session: Any = None
         self._script: Any = None
         self._device: Any = None
@@ -243,8 +246,10 @@ class FridaObservationSession:
             # Attach to existing running process if possible, or spawn suspended -> attach -> load -> resume
             try:
                 self._session = self._device.attach(self.package_name)
+                self.attached_existing = True
             except Exception:
                 self._pid = self._device.spawn([self.package_name])
+                self.spawned_pid = self._pid
                 self._session = self._device.attach(self._pid)
 
             self._script = self._session.create_script(bundle_script)
@@ -253,6 +258,7 @@ class FridaObservationSession:
 
             if self._pid is not None:
                 self._device.resume(self._pid)
+                self.started_target = True
 
             self.status = RuntimeObserverStatus.COMPLETED
         except Exception as exc:
@@ -273,4 +279,3 @@ class FridaObservationSession:
                 self._session.detach()
             except Exception:
                 pass
-

@@ -23,6 +23,7 @@ def test_raw_marker_correlation() -> None:
             "evidence_type": "synthetic_sms_delivered",
             "description": "Synthetic SMS delivered containing DS-TEST-OTP-882211",
             "api": "android.telephony.SmsMessage.createFromPdu",
+            "trust_level": "INSTRUMENTED",
             "metadata": {"has_synthetic_marker": True, "preview": "Your DS-TEST-OTP-882211 is..."},
         },
         {
@@ -30,6 +31,7 @@ def test_raw_marker_correlation() -> None:
             "evidence_type": "instrumented_network",
             "description": "Outbound HTTP request to https://evil-c2.net/exfil",
             "api": "okhttp3.OkHttpClient.newCall",
+            "trust_level": "INSTRUMENTED",
             "metadata": {
                 "url": "https://evil-c2.net/exfil",
                 "body_preview_redacted": "otp=DS-TEST-OTP-882211",
@@ -66,6 +68,7 @@ def test_base64_marker_correlation() -> None:
             "evidence_type": "sms_access",
             "description": "SMS PDU parsed with DS-TEST-OTP-334455",
             "api": "android.telephony.SmsMessage.createFromPdu",
+            "trust_level": "INSTRUMENTED",
             "metadata": {},
         },
         {
@@ -73,6 +76,7 @@ def test_base64_marker_correlation() -> None:
             "evidence_type": "instrumented_network",
             "description": "Outbound POST request with encoded payload",
             "api": "okhttp3.OkHttpClient.newCall",
+            "trust_level": "INSTRUMENTED",
             "metadata": {"payload": f'{{"token": "{b64_val}"}}'},
         },
     ]
