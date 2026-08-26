@@ -125,10 +125,10 @@ class Settings:
     static_reverse_enabled: bool = True
     frida_runtime_enabled: bool = True
     sms_observer_enabled: bool = True
-    notification_observer_enabled: bool = True
     accessibility_observer_enabled: bool = True
     network_observer_enabled: bool = True
     dex_observer_enabled: bool = True
+    webview_observer_enabled: bool = True
     recursive_dex_enabled: bool = True
     frauddna_enabled: bool = True
     brand_analysis_enabled: bool = True
@@ -283,10 +283,10 @@ class Settings:
             static_reverse_enabled=_bool(source.get("FRAUDSHIELD_STATIC_REVERSE_ENABLED"), default=True),
             frida_runtime_enabled=_bool(source.get("FRAUDSHIELD_FRIDA_RUNTIME_ENABLED"), default=True),
             sms_observer_enabled=_bool(source.get("FRAUDSHIELD_SMS_OBSERVER_ENABLED"), default=True),
-            notification_observer_enabled=_bool(source.get("FRAUDSHIELD_NOTIFICATION_OBSERVER_ENABLED"), default=True),
             accessibility_observer_enabled=_bool(source.get("FRAUDSHIELD_ACCESSIBILITY_OBSERVER_ENABLED"), default=True),
             network_observer_enabled=_bool(source.get("FRAUDSHIELD_NETWORK_OBSERVER_ENABLED"), default=True),
             dex_observer_enabled=_bool(source.get("FRAUDSHIELD_DEX_OBSERVER_ENABLED"), default=True),
+            webview_observer_enabled=_bool(source.get("FRAUDSHIELD_WEBVIEW_OBSERVER_ENABLED"), default=True),
             recursive_dex_enabled=_bool(source.get("FRAUDSHIELD_RECURSIVE_DEX_ENABLED"), default=True),
             frauddna_enabled=_bool(source.get("FRAUDSHIELD_FRAUDDNA_ENABLED"), default=True),
             brand_analysis_enabled=_bool(source.get("FRAUDSHIELD_BRAND_ANALYSIS_ENABLED"), default=True),

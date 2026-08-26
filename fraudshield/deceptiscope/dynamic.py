@@ -131,13 +131,40 @@ class DynamicLiteAnalyzer:
         serial = self.settings.adb_emulator_serial
         adb_available = bool(shutil.which(self.settings.adb_path))
         frida_st = self.frida_host.status()
+
+        configured_enabled = self.settings.dynamic_analysis_enabled
+        host_dependency_available = adb_available and frida_st.get("host_dependency_available", False)
+        emulator_configured = bool(serial)
+        safe_target_shape = serial.startswith("emulator-") if serial else False
+
+        observers_enabled = {
+            "sms": self.settings.sms_observer_enabled,
+            "accessibility": self.settings.accessibility_observer_enabled,
+            "network": self.settings.network_observer_enabled,
+            "dynamic_dex": self.settings.dex_observer_enabled,
+            "webview": self.settings.webview_observer_enabled,
+        }
+
+        runtime_ready = (
+            configured_enabled
+            and adb_available
+            and emulator_configured
+            and safe_target_shape
+            and (not self.settings.frida_runtime_enabled or frida_st.get("runtime_ready", False))
+        )
+
         return {
-            "enabled": self.settings.dynamic_analysis_enabled,
+            "enabled": configured_enabled,
+            "configured_enabled": configured_enabled,
+            "host_dependency_available": host_dependency_available,
             "adb_available": adb_available,
+            "emulator_configured": emulator_configured,
+            "emulator_serial": serial or None,
+            "safe_target_shape": safe_target_shape,
+            "frida": frida_st,
             "frida_installed": frida_st.get("frida_installed", False),
-            "emulator_serial_configured": bool(serial),
-            "safe_target_shape": serial.startswith("emulator-") if serial else False,
-            "synthetic_markers": {"otp": "dynamic-per-run"},
+            "observers_enabled": observers_enabled,
+            "runtime_ready": runtime_ready,
             "network_policy": {
                 "mode": self.settings.dynamic_network_policy,
                 "llm_supplied_targets": False,

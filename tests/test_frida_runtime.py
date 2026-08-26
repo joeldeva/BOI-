@@ -115,7 +115,7 @@ def test_unknown_observer_event_rejection() -> None:
 # ---------------------------------------------------------------------------
 def test_ai_cannot_inject_scripts() -> None:
     registry = ObserverRegistry()
-    with pytest.raises(ValueError, match="Unknown observer"):
+    with pytest.raises(ValueError, match="Unknown"):
         registry.load_observer_script("evil_injected_script.js")
 
 

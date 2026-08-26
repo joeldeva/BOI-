@@ -36,18 +36,21 @@ class FridaHost:
         registry: ObserverRegistry | None = None,
     ) -> None:
         self.settings = settings
-        self.registry = registry or ObserverRegistry()
+        self.registry = registry or ObserverRegistry(settings=settings)
 
     def status(self) -> dict[str, Any]:
-        """Checks if Frida runtime capability is available on the host and emulator."""
+        """Checks if Frida runtime capability is configured and available."""
         import importlib.util
         frida_installed = importlib.util.find_spec("frida") is not None
+        configured_enabled = self.settings.frida_runtime_enabled and self.settings.dynamic_analysis_enabled
 
         return {
-            "enabled": self.settings.dynamic_analysis_enabled,
+            "configured_enabled": self.settings.frida_runtime_enabled,
+            "host_dependency_available": frida_installed,
             "frida_installed": frida_installed,
+            "runtime_ready": configured_enabled and frida_installed,
             "adb_path": self.settings.adb_path,
-            "emulator_serial": self.settings.adb_emulator_serial or "default",
+            "emulator_serial": self.settings.adb_emulator_serial or None,
         }
 
     def process_raw_message(
@@ -211,8 +214,13 @@ class FridaObservationSession:
         self._pid: int | None = None
 
     def __enter__(self) -> FridaObservationSession:
+        if not self.frida_host.settings.frida_runtime_enabled:
+            self.status = RuntimeObserverStatus.UNAVAILABLE
+            self.warnings.append("Frida runtime instrumentation is disabled by configuration.")
+            return self
+
         st = self.frida_host.status()
-        if not st.get("frida_installed"):
+        if not st.get("host_dependency_available", st.get("frida_installed", False)):
             self.warnings.append("Frida package is not installed in Python environment.")
             return self
 
@@ -222,9 +230,13 @@ class FridaObservationSession:
             self.warnings.append("Frida module could not be loaded.")
             return self
 
-        bundle_script = self.frida_host.registry.build_bundle(self.observer_names)
+        enabled_observers = [
+            obs for obs in self.observer_names if self.frida_host.registry.is_observer_enabled(obs)
+        ]
+        bundle_script = self.frida_host.registry.build_bundle(enabled_observers)
         if not bundle_script.strip():
             self.status = RuntimeObserverStatus.UNAVAILABLE
+            self.warnings.append("No active observers configured or selected for this session.")
             return self
 
         def on_message(message: dict[str, Any], data: Any) -> None:
