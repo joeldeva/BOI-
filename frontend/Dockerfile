@@ -11,7 +11,9 @@ ARG VITE_MAX_APK_MB="75"
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
     VITE_DEMO_ENABLED=${VITE_DEMO_ENABLED} \
     VITE_MAX_APK_MB=${VITE_MAX_APK_MB}
-RUN npm run check
+# Tests and lint are verified in CI test-lint-build job (full repo context).
+# Container build only needs type-check + production bundle.
+RUN npm run build
 
 FROM nginx:1.27-alpine AS runtime
 

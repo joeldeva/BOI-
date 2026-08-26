@@ -40,6 +40,7 @@ production = [
   "PyJWT[crypto]>=2.13,<3"
 ]
 dev = [
+  "build>=1.2,<2",
   "PyJWT[crypto]>=2.13,<3",
   "pytest>=9.1.1,<10",
   "pytest-cov>=7,<8",

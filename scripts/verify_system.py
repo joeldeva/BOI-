@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """End-to-end verification script for running FraudShield DeceptiScope instance."""
 
-import io
-import time
-import zipfile
 import httpx
 
 BASE_URL = "http://127.0.0.1:8000"
