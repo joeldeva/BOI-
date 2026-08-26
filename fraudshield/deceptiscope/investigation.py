@@ -388,6 +388,37 @@ class EvidenceNormalizer:
                 timestamp_ms=item.get("timestamp_ms"),
             )
 
+        for payload in findings.get("recovered_payloads", []):
+            if not isinstance(payload, dict):
+                continue
+            payload_id = str(payload.get("payload_id", "PAYLOAD"))
+            for mth in payload.get("method_level_evidence", []):
+                if not isinstance(mth, dict):
+                    continue
+                add(
+                    "payload_method_behavior",
+                    "recovered-payload",
+                    f"[{mth.get('signature_id')}] {mth.get('title')} (in {payload_id})",
+                    f"{mth.get('class_name')}->{mth.get('method_name')}()",
+                    0.95,
+                    {
+                        "signature_id": mth.get("signature_id"),
+                        "category": mth.get("category"),
+                        "payload_id": payload_id,
+                        "payload_sha256": payload.get("sha256"),
+                        "parent_sample_sha256": payload.get("parent_sample_sha256"),
+                        "loader": payload.get("loader"),
+                    },
+                    phase="PAYLOAD",
+                    trust_level="STATIC_MATCH",
+                    source_artifact=payload_id,
+                    class_name=mth.get("class_name"),
+                    method_name=mth.get("method_name"),
+                    call_site=mth.get("call_site"),
+                    code_context=mth.get("code_context"),
+                    code_ownership=mth.get("code_ownership", "APPLICATION_CODE"),
+                )
+
         return self._assign_ids(raw)
 
     def _assign_ids(self, raw: list[dict[str, Any]]) -> list[EvidenceItem]:
@@ -427,6 +458,8 @@ class EvidenceNormalizer:
             if len(evidence) >= self.limit:
                 break
         return evidence
+
+    normalize = build
 
 
 class AIInvestigatorClient:

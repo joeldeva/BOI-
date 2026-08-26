@@ -382,6 +382,22 @@ export interface DynamicExperimentResult {
   metadata: JsonObject;
 }
 
+export interface RecoveredPayload {
+  payload_id: string;
+  parent_sample_sha256: string;
+  sha256: string;
+  payload_type: 'DEX' | 'JAR' | 'UNKNOWN';
+  size_bytes: number;
+  source: string;
+  loader: string;
+  runtime_evidence_id?: string | null;
+  storage_reference?: string | null;
+  analysis_status: 'ANALYZED' | 'UNAVAILABLE' | 'INVALID_MAGIC' | 'OVERSIZED' | 'FAILED';
+  extracted_capabilities: string[];
+  method_level_evidence?: JsonObject[];
+  metadata?: JsonObject;
+}
+
 export interface ApkAnalysisResult {
   schema_version: string;
   analysis_id: string;
@@ -414,6 +430,7 @@ export interface ApkAnalysisResult {
   emitted_indicators: ThreatIndicatorRecord[];
   runtime_evidence: RuntimeEvidence[];
   experiment_results: DynamicExperimentResult[];
+  recovered_payloads?: RecoveredPayload[];
   extraction: ApkExtractionDetails;
   ai_investigation?: AIInvestigation;
   narrative_metadata: { llm_controls_score: false; source: string; warning: string | null };

@@ -75,10 +75,20 @@ class APKDisassembler:
 
         warnings: list[str] = []
         methods: list[DisassembledMethod] = []
-        dex_count = 0
+        dex_list: list[bytes] = []
+        if apk_path.suffix.lower() == ".dex":
+            dex_list = [apk_path.read_bytes()]
+        else:
+            try:
+                apk = APK(str(apk_path))
+                dex_list = list(apk.get_all_dex())
+            except Exception:
+                raw = apk_path.read_bytes()
+                if raw.startswith(b"dex\n"):
+                    dex_list = [raw]
+                else:
+                    raise
 
-        apk = APK(str(apk_path))
-        dex_list = list(apk.get_all_dex())
         dex_count = len(dex_list)
 
         for idx, dex_bytes in enumerate(dex_list):
