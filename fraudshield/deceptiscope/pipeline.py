@@ -309,6 +309,8 @@ class APKAnalysisPipeline:
             "emitted_indicators": [],
             "runtime_evidence": runtime_evidence,
             "experiment_results": experiment_results,
+            "recovered_payloads": list(extraction.get("recovered_payloads", [])),
+            "payload_lineage": list(extraction.get("payload_lineage", [])),
             "decision_notice": (
                 "Analyst decision support only; no automated enforcement or account action is performed."
             ),

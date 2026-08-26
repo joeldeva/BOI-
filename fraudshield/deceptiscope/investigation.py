@@ -240,7 +240,9 @@ class EvidenceNormalizer:
                 )
 
         # Method-level reverse engineering behavioral matches
-        for m in extraction.get("method_level_evidence", {}).get("matches", [])[:40]:
+        raw_mth = extraction.get("method_level_evidence") or {}
+        mth_matches = raw_mth.get("matches", []) if isinstance(raw_mth, dict) else (raw_mth if isinstance(raw_mth, list) else [])
+        for m in mth_matches[:40]:
             if not isinstance(m, dict):
                 continue
             sig_id = m.get("signature_id", "MTH")

@@ -123,6 +123,17 @@ class Settings:
     adb_path: str = "adb"
     adb_emulator_serial: str = ""
     dynamic_timeout_seconds: int = 90
+    static_reverse_enabled: bool = True
+    frida_runtime_enabled: bool = True
+    sms_observer_enabled: bool = True
+    notification_observer_enabled: bool = True
+    accessibility_observer_enabled: bool = True
+    network_observer_enabled: bool = True
+    dex_observer_enabled: bool = True
+    recursive_dex_enabled: bool = True
+    frauddna_enabled: bool = True
+    brand_analysis_enabled: bool = True
+    virustotal_enrichment_enabled: bool = True
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -273,6 +284,17 @@ class Settings:
             adb_path=source.get("FRAUDSHIELD_ADB_PATH", "adb"),
             adb_emulator_serial=source.get("FRAUDSHIELD_ADB_EMULATOR_SERIAL", ""),
             dynamic_timeout_seconds=_int(source.get("FRAUDSHIELD_DYNAMIC_TIMEOUT_SECONDS"), 90),
+            static_reverse_enabled=_bool(source.get("FRAUDSHIELD_STATIC_REVERSE_ENABLED"), default=True),
+            frida_runtime_enabled=_bool(source.get("FRAUDSHIELD_FRIDA_RUNTIME_ENABLED"), default=True),
+            sms_observer_enabled=_bool(source.get("FRAUDSHIELD_SMS_OBSERVER_ENABLED"), default=True),
+            notification_observer_enabled=_bool(source.get("FRAUDSHIELD_NOTIFICATION_OBSERVER_ENABLED"), default=True),
+            accessibility_observer_enabled=_bool(source.get("FRAUDSHIELD_ACCESSIBILITY_OBSERVER_ENABLED"), default=True),
+            network_observer_enabled=_bool(source.get("FRAUDSHIELD_NETWORK_OBSERVER_ENABLED"), default=True),
+            dex_observer_enabled=_bool(source.get("FRAUDSHIELD_DEX_OBSERVER_ENABLED"), default=True),
+            recursive_dex_enabled=_bool(source.get("FRAUDSHIELD_RECURSIVE_DEX_ENABLED"), default=True),
+            frauddna_enabled=_bool(source.get("FRAUDSHIELD_FRAUDDNA_ENABLED"), default=True),
+            brand_analysis_enabled=_bool(source.get("FRAUDSHIELD_BRAND_ANALYSIS_ENABLED"), default=True),
+            virustotal_enrichment_enabled=_bool(source.get("FRAUDSHIELD_VIRUSTOTAL_ENRICHMENT_ENABLED"), default=True),
         )
 
     def with_overrides(self, **changes: object) -> "Settings":

@@ -187,6 +187,14 @@ class AnalysisRepository:
             raise NotFoundError("completed analysis", "latest")
         return _analysis_from_row(row)
 
+    def delete_synthetic_demo_records(self) -> int:
+        """Safely removes only explicit synthetic demonstration records without touching uploaded data."""
+        with self.db.transaction() as connection:
+            cursor = connection.execute(
+                "DELETE FROM analyses WHERE data_origin = 'synthetic'"
+            )
+            return int(cursor.rowcount)
+
 
 def normalize_indicator(indicator_type: str, value: str) -> str:
     kind = indicator_type.strip().lower()

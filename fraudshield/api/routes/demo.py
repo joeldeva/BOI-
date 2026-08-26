@@ -36,3 +36,15 @@ def seed_demo(
         "engine_summary": result["engine_analysis"]["summary"],
         "notice": "This is explicit synthetic APK evidence; it is never represented as an uploaded sample.",
     }
+
+
+@router.post("/reset", status_code=status.HTTP_200_OK, dependencies=[Depends(require_api_key)])
+def reset_demo(
+    services: Annotated[ServiceContainer, Depends(container)],
+) -> dict:
+    deleted_count = services.analyses.delete_synthetic_demo_records()
+    return {
+        "status": "demo_reset_completed",
+        "deleted_records": deleted_count,
+        "notice": "Cleaned synthetic demo analysis records. Production/uploaded data was preserved.",
+    }
