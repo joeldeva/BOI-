@@ -1,4 +1,4 @@
-import { Building, Flame } from 'lucide-react';
+import { Building, Flame, ShieldAlert } from 'lucide-react';
 import type { BrandImpersonationResult, FirebaseInfrastructure } from '../../types/api';
 
 interface BankImpersonationCardProps {
@@ -12,7 +12,44 @@ const verdictBadgeStyle: Record<string, string> = {
   SUSPICIOUS: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
   NONE: 'bg-slate-800 text-slate-300 border-slate-700',
   OFFICIAL_LEGITIMATE: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+  NOT_CONFIGURED: 'bg-slate-700/40 text-slate-400 border-slate-600/40',
 };
+
+/** Render signer status honestly — never show UNTRUSTED when inventory not configured. */
+function SignerStatusCell({ result }: { result: BrandImpersonationResult }) {
+  const refStatus = result.signer_reference_status ?? 'NOT_CONFIGURED';
+  if (refStatus === 'NOT_CONFIGURED') {
+    return (
+      <p className="font-mono font-bold text-slate-500 text-xs" title="No trusted signer fingerprints configured for this bank profile">
+        NOT CONFIGURED
+      </p>
+    );
+  }
+  return (
+    <p className={`font-mono font-bold ${result.is_trusted_signer ? 'text-emerald-400' : 'text-red-400'}`}>
+      {result.is_trusted_signer ? 'VERIFIED' : 'UNTRUSTED'}
+    </p>
+  );
+}
+
+/** Render icon similarity honestly — never show comparison result when reference not configured. */
+function IconSimilarityCell({ result }: { result: BrandImpersonationResult }) {
+  const refStatus = result.icon_reference_status ?? 'NOT_CONFIGURED';
+  if (refStatus === 'NOT_CONFIGURED') {
+    return (
+      <p className="font-mono font-bold text-slate-500 text-xs" title="No reference icon phash configured for this bank profile">
+        NOT CONFIGURED
+      </p>
+    );
+  }
+  return (
+    <p className="font-mono font-bold text-slate-200">
+      {result.icon_similarity != null
+        ? `${(result.icon_similarity * 100).toFixed(0)}%`
+        : 'N/A'}
+    </p>
+  );
+}
 
 export function BankImpersonationCard({
   brandImpersonation,
@@ -22,6 +59,7 @@ export function BankImpersonationCard({
     return null;
   }
 
+  const isNotConfigured = brandImpersonation?.verdict === 'NOT_CONFIGURED';
   const isImpersonating =
     brandImpersonation &&
     ['VERY_HIGH', 'HIGH', 'SUSPICIOUS'].includes(brandImpersonation.verdict);
@@ -45,7 +83,24 @@ export function BankImpersonationCard({
         )}
       </div>
 
-      {brandImpersonation && (
+      {/* NOT_CONFIGURED state — honest disclosure */}
+      {isNotConfigured && (
+        <div className="flex items-start gap-3 p-4 rounded-lg bg-slate-900/60 border border-slate-700">
+          <ShieldAlert className="w-5 h-5 text-slate-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-slate-300">Bank Reference Profiles Not Configured</p>
+            <p className="text-xs text-slate-400 mt-1">
+              No bank reference profiles are loaded. Impersonation analysis is unavailable.
+              Place YAML profiles in <code className="font-mono text-slate-300">config/bank_profiles/</code> to enable.
+            </p>
+            {brandImpersonation?.reasons?.map((r, i) => (
+              <p key={i} className="text-xs text-slate-500 mt-1">{r}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {brandImpersonation && !isNotConfigured && (
         <div className="space-y-4">
           <div className="p-4 rounded-lg bg-slate-950 border border-slate-800 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -76,11 +131,7 @@ export function BankImpersonationCard({
               </div>
               <div className="p-2.5 rounded bg-slate-900/80 border border-slate-800 space-y-1">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Icon Visual Sim</span>
-                <p className="font-mono font-bold text-slate-200">
-                  {brandImpersonation.icon_similarity != null
-                    ? `${(brandImpersonation.icon_similarity * 100).toFixed(0)}%`
-                    : 'N/A'}
-                </p>
+                <IconSimilarityCell result={brandImpersonation} />
               </div>
               <div className="p-2.5 rounded bg-slate-900/80 border border-slate-800 space-y-1">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Official Package</span>
@@ -94,13 +145,7 @@ export function BankImpersonationCard({
               </div>
               <div className="p-2.5 rounded bg-slate-900/80 border border-slate-800 space-y-1">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Trusted Signer</span>
-                <p
-                  className={`font-mono font-bold ${
-                    brandImpersonation.is_trusted_signer ? 'text-emerald-400' : 'text-red-400'
-                  }`}
-                >
-                  {brandImpersonation.is_trusted_signer ? 'VERIFIED' : 'UNTRUSTED'}
-                </p>
+                <SignerStatusCell result={brandImpersonation} />
               </div>
             </div>
 

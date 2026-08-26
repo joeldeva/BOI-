@@ -13,6 +13,12 @@ from fraudshield.deceptiscope.impersonation import (
 )
 
 
+# Valid 64-char hex SHA-256 test signer fingerprint (not a real certificate)
+_TEST_SIGNER_FP = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+# A different attacker signer fingerprint
+_ATTACKER_SIGNER_FP = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+
+
 @pytest.fixture
 def custom_profile_manager(tmp_path: Path) -> BankProfileManager:
     manager = BankProfileManager(profiles_dir=tmp_path)
@@ -22,7 +28,7 @@ def custom_profile_manager(tmp_path: Path) -> BankProfileManager:
         known_abbreviations=["BOI", "BKID"],
         official_domains=["bankofindia.co.in", "bankofindia.com"],
         official_packages=["com.boi.mobile", "com.bankofindia.omni"],
-        trusted_signer_fingerprints=["OFFICIAL_BOI_SIGNER_SHA256"],
+        trusted_signer_fingerprints=[_TEST_SIGNER_FP],
         reference_icon_phash="1111222233334444",
     )
     manager.register_profile(profile)
@@ -41,8 +47,8 @@ def test_strong_multisignal_impersonation(custom_profile_manager: BankProfileMan
             "package_name": "com.fake.boi.rewards",
         },
         "certificate": {
-            "sha256": "ATTACKER_SIGNER_HASH_9999",
-            "sha256_fingerprints": ["ATTACKER_SIGNER_HASH_9999"],
+            "sha256": _ATTACKER_SIGNER_FP,
+            "sha256_fingerprints": [_ATTACKER_SIGNER_FP],
         },
         "network_indicators": {
             "domains": ["bankofindia-kyc-update.com"],
@@ -106,8 +112,8 @@ def test_official_legitimate_app(custom_profile_manager: BankProfileManager) -> 
             "package_name": "com.boi.mobile",
         },
         "certificate": {
-            "sha256": "OFFICIAL_BOI_SIGNER_SHA256",
-            "sha256_fingerprints": ["OFFICIAL_BOI_SIGNER_SHA256"],
+            "sha256": _TEST_SIGNER_FP,  # matches the trusted fingerprint in the fixture
+            "sha256_fingerprints": [_TEST_SIGNER_FP],
         },
         "network_indicators": {
             "domains": ["bankofindia.co.in"],
@@ -137,8 +143,8 @@ def test_repackaged_official_package_name(custom_profile_manager: BankProfileMan
             "package_name": "com.boi.mobile",
         },
         "certificate": {
-            "sha256": "ROGUE_ATTACKER_SIGNER_CERT",
-            "sha256_fingerprints": ["ROGUE_ATTACKER_SIGNER_CERT"],
+            "sha256": _ATTACKER_SIGNER_FP,  # different from trusted fingerprint
+            "sha256_fingerprints": [_ATTACKER_SIGNER_FP],
         },
         "network_indicators": {
             "domains": ["c2-evil.net"],
@@ -198,11 +204,18 @@ def test_firebase_enters_frauddna() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 7: Missing Bank Reference Data Handled Gracefully
+# Test 7: Missing Bank Reference Data Handled Gracefully → NOT_CONFIGURED
 # ---------------------------------------------------------------------------
 def test_missing_bank_profile_handled_gracefully(tmp_path: Path) -> None:
+    """
+    When no profiles directory/file exists, BankProfileManager must not create
+    synthetic fallback profiles. The result must be NOT_CONFIGURED, not NONE
+    with 0.0 score from a fabricated profile.
+    """
     empty_manager = BankProfileManager(profiles_dir=tmp_path / "empty_dir")
-    # Even if empty directory, manager initializes without errors
+    assert not empty_manager.is_configured(), "Manager must report not configured"
+    assert empty_manager.all_profiles() == [], "No synthetic profiles must exist"
+
     analyzer = BrandImpersonationAnalyzer(profile_manager=empty_manager)
 
     extraction = {
@@ -212,5 +225,8 @@ def test_missing_bank_profile_handled_gracefully(tmp_path: Path) -> None:
     }
 
     result = analyzer.analyze(extraction)
-    assert result.verdict == BrandImpersonationVerdict.NONE
+    # NOT_CONFIGURED is the honest verdict — no profiles loaded
+    assert result.verdict == BrandImpersonationVerdict.NOT_CONFIGURED
     assert result.impersonation_score == 0.0
+    assert result.signer_reference_status == "NOT_CONFIGURED"
+    assert result.icon_reference_status == "NOT_CONFIGURED"

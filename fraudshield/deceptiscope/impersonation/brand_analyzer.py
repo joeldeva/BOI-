@@ -22,6 +22,7 @@ class BrandImpersonationVerdict(str, Enum):
     SUSPICIOUS = "SUSPICIOUS"
     NONE = "NONE"
     OFFICIAL_LEGITIMATE = "OFFICIAL_LEGITIMATE"
+    NOT_CONFIGURED = "NOT_CONFIGURED"   # No reference profiles loaded
 
 
 class BrandImpersonationResult(BaseModel):
@@ -42,17 +43,24 @@ class BrandImpersonationResult(BaseModel):
     impersonation_score: float = Field(ge=0.0, le=1.0, default=0.0)
     verdict: BrandImpersonationVerdict = BrandImpersonationVerdict.NONE
     reasons: list[str] = Field(default_factory=list)
+    # Reference-quality status — exposed so UI/report never claim what isn't configured
+    signer_reference_status: str = "NOT_CONFIGURED"  # CONFIGURED | NOT_CONFIGURED
+    icon_reference_status: str = "NOT_CONFIGURED"    # CONFIGURED | NOT_CONFIGURED
 
 
 class BrandImpersonationAnalyzer:
     """
     Analyzes whether an APK is impersonating a known banking institution.
-    
+
     Safety Invariants:
     1. Multi-signal requirement: High/Very High verdict strictly requires brand identity overlap
        combined with untrusted signer/package and malicious/credential capabilities.
     2. Icon-only similarity alone NEVER produces a HIGH or VERY HIGH impersonation verdict.
-    3. Official package + trusted signer produces OFFICIAL_LEGITIMATE.
+    3. Name-only similarity alone NEVER produces a HIGH or VERY HIGH verdict.
+    4. Signer mismatch is only concluded when trusted_signer_fingerprints is non-empty.
+    5. Icon comparison is only performed when reference_icon_phash is non-null.
+    6. When no profiles are loaded, verdict = NOT_CONFIGURED.
+    7. Official package + trusted signer produces OFFICIAL_LEGITIMATE.
     """
 
     def __init__(
@@ -69,6 +77,15 @@ class BrandImpersonationAnalyzer:
         method_evidence: dict[str, Any] | None = None,
         icon_phash: str | None = None,
     ) -> BrandImpersonationResult:
+        # When no profiles are configured, report honestly
+        if not self.profile_manager.is_configured():
+            return BrandImpersonationResult(
+                verdict=BrandImpersonationVerdict.NOT_CONFIGURED,
+                reasons=["No bank reference profiles are configured — impersonation analysis unavailable"],
+                signer_reference_status="NOT_CONFIGURED",
+                icon_reference_status="NOT_CONFIGURED",
+            )
+
         app = extraction.get("app", {})
         certificate = extraction.get("certificate", {})
         network_info = extraction.get("network_indicators", {})
@@ -128,8 +145,14 @@ class BrandImpersonationAnalyzer:
         app_label_lower = app_label.lower()
         package_name_lower = package_name.lower()
 
+        # Track reference quality for this profile
+        signer_ref_status = profile.signer_reference_status    # CONFIGURED | NOT_CONFIGURED
+        icon_ref_status = profile.icon_reference_status        # CONFIGURED | NOT_CONFIGURED
+
         # 1. Official Package & Signer Match
         is_official_pkg = package_name_lower in [p.lower() for p in profile.official_packages]
+
+        # Signer trust is ONLY claimed when a non-empty trusted fingerprint inventory exists
         is_trusted_sig = bool(
             profile.trusted_signer_fingerprints
             and set(signers) & set(profile.trusted_signer_fingerprints)
@@ -141,12 +164,14 @@ class BrandImpersonationAnalyzer:
                 target_bank_name=profile.official_names[0] if profile.official_names else profile.bank_id,
                 app_label_similarity=1.0,
                 package_name_similarity=1.0,
-                icon_similarity=1.0 if icon_hash else None,
+                icon_similarity=None,  # icon not needed to confirm legitimacy via pkg+sig
                 is_official_package=True,
                 is_trusted_signer=True,
                 impersonation_score=0.0,
                 verdict=BrandImpersonationVerdict.OFFICIAL_LEGITIMATE,
                 reasons=["Official package name and trusted signing certificate verified"],
+                signer_reference_status=signer_ref_status,
+                icon_reference_status=icon_ref_status,
             )
 
         # 2. App Label Similarity & Keyword Search
@@ -161,7 +186,6 @@ class BrandImpersonationAnalyzer:
             if name.lower() in app_label_lower or name.lower() in package_name_lower:
                 keywords_detected.append(name)
         for abbrev in profile.known_abbreviations:
-            # Match whole words or clean tokens for abbreviations
             if abbrev.lower() in app_label_lower.split() or abbrev.lower() in package_name_lower.split("."):
                 if abbrev not in keywords_detected:
                     keywords_detected.append(abbrev)
@@ -173,8 +197,11 @@ class BrandImpersonationAnalyzer:
         ]
         pkg_similarity = max(pkg_sims) if pkg_sims else 0.0
 
-        # 4. Icon Perceptual Similarity
-        icon_sim = self.icon_hasher.similarity(icon_hash, profile.reference_icon_phash)
+        # 4. Icon Perceptual Similarity — ONLY when reference icon phash is configured
+        if icon_ref_status == "CONFIGURED":
+            icon_sim = self.icon_hasher.similarity(icon_hash, profile.reference_icon_phash)
+        else:
+            icon_sim = None  # Cannot evaluate — reference not configured
 
         # 5. Domain Similarity
         domain_sim = 0.0
@@ -205,6 +232,7 @@ class BrandImpersonationAnalyzer:
             score += 0.20
             reasons.append(f"Domain name similarity to official bank domain ({int(domain_sim * 100)}%)")
 
+        # Icon score contribution — only when reference is configured
         if icon_sim is not None and icon_sim >= 0.85:
             score += 0.15
             reasons.append(f"Launcher icon visually similar to reference bank icon ({int(icon_sim * 100)}%)")
@@ -213,26 +241,44 @@ class BrandImpersonationAnalyzer:
             score += 0.15
             reasons.append("Credential or OTP interception capability detected")
 
-        if not is_trusted_sig and (keywords_detected or label_similarity >= 0.60):
-            if not profile.trusted_signer_fingerprints:
-                reasons.append("Official signer inventory not configured for target bank")
-            else:
+        # Signer mismatch note — only when signer inventory is configured
+        if signer_ref_status == "CONFIGURED":
+            if not is_trusted_sig and (keywords_detected or label_similarity >= 0.60):
                 reasons.append("Untrusted signing certificate (Not signed by official bank identity)")
+        else:
+            # Signer inventory not configured — do NOT conclude mismatch
+            if keywords_detected or label_similarity >= 0.60:
+                reasons.append("Official signer inventory not configured — signer authenticity cannot be determined")
 
         impersonation_score = max(0.0, min(1.0, score))
 
-        # 7. Verdict Determination (Enforcing Multi-Signal & Icon-Only Safety)
-        has_brand_identity_signal = bool(keywords_detected or label_similarity >= 0.65 or (is_official_pkg and not is_trusted_sig))
+        # 7. Verdict Determination (Enforcing Multi-Signal & Icon-Only/Name-Only Safety)
+        # Brand identity signal: requires keyword OR (high label sim AND NOT icon-only)
+        has_brand_identity_signal = bool(
+            keywords_detected
+            or label_similarity >= 0.65
+            or (is_official_pkg and not is_trusted_sig)
+        )
 
-        if not has_brand_identity_signal:
-            # If only icon similarity matched without brand title / keyword overlap -> MUST NOT BE HIGH
+        # Package + domain together (without name match) can support SUSPICIOUS but not HIGH
+        has_package_domain_signal = bool(
+            pkg_similarity >= 0.70 and domain_sim >= 0.70
+        )
+
+        if not has_brand_identity_signal and not has_package_domain_signal:
+            # Icon-only or domain-only signals must not elevate verdict above SUSPICIOUS
             if icon_sim is not None and icon_sim >= 0.85:
                 verdict = BrandImpersonationVerdict.SUSPICIOUS
                 impersonation_score = min(0.35, impersonation_score)
             else:
                 verdict = BrandImpersonationVerdict.NONE
                 impersonation_score = 0.0
+        elif not has_brand_identity_signal and has_package_domain_signal:
+            # Package + domain without brand name match → max SUSPICIOUS
+            verdict = BrandImpersonationVerdict.SUSPICIOUS
+            impersonation_score = min(0.49, impersonation_score)
         else:
+            # Full multi-signal path
             if impersonation_score >= 0.75:
                 verdict = BrandImpersonationVerdict.VERY_HIGH
             elif impersonation_score >= 0.50:
@@ -258,4 +304,6 @@ class BrandImpersonationAnalyzer:
             impersonation_score=impersonation_score,
             verdict=verdict,
             reasons=reasons,
+            signer_reference_status=signer_ref_status,
+            icon_reference_status=icon_ref_status,
         )

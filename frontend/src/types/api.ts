@@ -450,7 +450,13 @@ export interface FirebaseInfrastructure {
   source: string;
 }
 
-export type BrandImpersonationVerdict = 'VERY_HIGH' | 'HIGH' | 'SUSPICIOUS' | 'NONE' | 'OFFICIAL_LEGITIMATE';
+export type BrandImpersonationVerdict =
+  | 'VERY_HIGH'
+  | 'HIGH'
+  | 'SUSPICIOUS'
+  | 'NONE'
+  | 'OFFICIAL_LEGITIMATE'
+  | 'NOT_CONFIGURED';  // No bank reference profiles loaded — cannot evaluate
 
 export interface BrandImpersonationResult {
   target_bank_id?: string | null;
@@ -466,6 +472,10 @@ export interface BrandImpersonationResult {
   impersonation_score: number;
   verdict: BrandImpersonationVerdict;
   reasons: string[];
+  /** 'CONFIGURED' | 'NOT_CONFIGURED' — whether trusted signer inventory is loaded */
+  signer_reference_status?: string;
+  /** 'CONFIGURED' | 'NOT_CONFIGURED' — whether reference icon phash is loaded */
+  icon_reference_status?: string;
 }
 
 export type BankingImpactStatus = 'CONFIRMED' | 'SUPPORTED' | 'POSSIBLE' | 'NOT_OBSERVED';
