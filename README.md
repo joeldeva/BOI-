@@ -115,16 +115,9 @@ curl -X POST http://127.0.0.1:8000/api/v1/jobs/apk-analysis \
 
 Poll `GET /api/v1/jobs/{job_id}`, then follow `result.resource`. Development can also enable the synchronous `POST /api/v1/apk-analyses` route.
 
-## Safe Demo
+## Analysis Verification
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/demo/seed \
-  -H 'Content-Type: application/json' \
-  -H "X-API-Key: $FRAUDSHIELD_API_KEY" \
-  -d '{"category":"banking"}'
-```
-
-The demo is an explicit synthetic fixture. It never substitutes for a failed upload and never performs an external lookup.
+Analyses can be submitted asynchronously via `POST /api/v1/jobs/apk-analysis` or synchronously in development via `POST /api/v1/apk-analyses`. Generated findings and reports are deterministic and verifiable against technical evidence.
 
 ## Privacy Defaults
 

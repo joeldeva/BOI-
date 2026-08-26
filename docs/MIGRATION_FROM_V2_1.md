@@ -34,8 +34,10 @@ Retained:
 - `/api/v1/jobs/{job_id}` and job control endpoints
 - `/api/v1/indicators`
 - `/api/v1/audit-events`
-- `/api/v1/demo/seed` (response is now APK-only)
 - development legacy APK/report endpoints when explicitly enabled
+
+Removed:
+- `/api/v1/demo/seed` (all demo routes removed in v3.0)
 
 Removed operations are absent from OpenAPI and return `404` or method-not-allowed `405` where a generic resource path still matches. Regenerate clients from `docs/openapi.json`; do not reuse the v2 graph client types.
 

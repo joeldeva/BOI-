@@ -22,23 +22,17 @@ Comprehensive test suite testing all adapter-specific requirements:
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import httpx
-import pytest
 
 from fraudshield.core.config import Settings
 from fraudshield.deceptiscope.engines import (
     APKiDAdapter,
-    ArchiveNativeAdapter,
     EngineCoordinator,
     MalwareBazaarHashAdapter,
-    MobSFAdapter,
     MultiEngineAnalyzer,
     QuarkAdapter,
     SignatureAdapter,

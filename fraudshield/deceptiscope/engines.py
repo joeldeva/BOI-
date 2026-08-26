@@ -32,7 +32,6 @@ import shutil
 import subprocess
 import time
 import zipfile
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
