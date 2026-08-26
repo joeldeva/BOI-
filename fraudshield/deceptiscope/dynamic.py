@@ -4,7 +4,6 @@ import re
 import shutil
 import subprocess
 import time
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -13,14 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from fraudshield.core.config import Settings
 from fraudshield.core.errors import ConfigurationError, ValidationError
 from fraudshield.deceptiscope.experiments import ExperimentStatus, ExperimentType
-
-
-class EvidenceTrustLevel(str, Enum):
-    INFERRED = "INFERRED"
-    LOG_OBSERVED = "LOG_OBSERVED"
-    SYSTEM_OBSERVED = "SYSTEM_OBSERVED"
-    INSTRUMENTED = "INSTRUMENTED"
-    PAYLOAD_CORRELATED = "PAYLOAD_CORRELATED"
+from fraudshield.deceptiscope.runtime.frida_host import FridaHost
+from fraudshield.deceptiscope.runtime.runtime_models import EvidenceTrustLevel
 
 
 SYNTHETIC_OTP_MARKER = "BOI-TEST-749231"
@@ -130,13 +123,16 @@ class DynamicLiteAnalyzer:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.frida_host = FridaHost(settings)
 
     def status(self) -> dict[str, Any]:
         serial = self.settings.adb_emulator_serial
         adb_available = bool(shutil.which(self.settings.adb_path))
+        frida_st = self.frida_host.status()
         return {
             "enabled": self.settings.dynamic_analysis_enabled,
             "adb_available": adb_available,
+            "frida_installed": frida_st.get("frida_installed", False),
             "emulator_serial_configured": bool(serial),
             "safe_target_shape": serial.startswith("emulator-") if serial else False,
             "synthetic_markers": {"otp": SYNTHETIC_OTP_MARKER},
@@ -280,6 +276,22 @@ class DynamicLiteAnalyzer:
             summary = "Dynamic collector failed"
             unavailable_reason = None
             error = _clip(str(exc), 500)
+
+        # Run defensive instrumented Frida observers if emulator session is active
+        if status == ExperimentStatus.COMPLETED and state.get("launched"):
+            try:
+                obs_names = self.frida_host.registry.get_observers_for_experiments([experiment_type])
+                if obs_names and self.frida_host.status().get("frida_installed"):
+                    _, frida_events, _ = self.frida_host.run_observers(
+                        package_name=state.get("package_name", "unknown"),
+                        observer_names=obs_names,
+                        timeout_seconds=min(5, self.settings.dynamic_timeout_seconds),
+                    )
+                    if frida_events:
+                        self.frida_host.normalize_to_evidence(frida_events, builder)
+            except Exception:
+                pass
+
         new_ids = [item.evidence_id for item in builder.items[before_count:]]
         return DynamicExperimentResult(
             experiment_id=experiment_id,

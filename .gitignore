@@ -9,7 +9,7 @@ htmlcov/
 .venv/
 venv/
 .env
-runtime/
+/runtime/
 dist/
 build/
 *.apk
