@@ -56,7 +56,7 @@ def _make_sig(
     )
 
 
-# DroidLysis-inspired Android Method-Level Behavior Signatures
+# Android method-level behavior signatures used by DeceptiScope.
 BEHAVIOR_SIGNATURES: tuple[BehaviorSignature, ...] = (
     # --- 1. SMS / CREDENTIAL THEFT ---
     _make_sig(

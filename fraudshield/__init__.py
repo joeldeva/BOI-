@@ -2,7 +2,8 @@
 
 import sys
 
-# Compatibility adapter for legacy dexofuzzy library expecting six in pip._vendor
+# Some optional fingerprinting packages import six from pip._vendor.
+# Provide a local compatibility alias before engine modules load.
 try:
     import six
     if "pip._vendor.six" not in sys.modules:
@@ -11,4 +12,3 @@ except ImportError:
     pass
 
 __version__ = "3.0.0"
-

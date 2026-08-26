@@ -91,9 +91,8 @@ def _status(
 class MultiEngineAnalyzer:
     """Run bounded, optional APK engines and normalize their evidence.
 
-    The orchestration pattern is informed by Pithus, but storage, tasking and
-    privacy controls are native to DeceptiScope. Engine failure never converts
-    an unknown package into a clean result and never prevents core extraction.
+    Engine execution is isolated behind explicit adapter status so unavailable
+    tools never become clean evidence and never prevent core extraction.
     """
 
     version = "deceptiscope-engines-2026.4"

@@ -135,39 +135,37 @@ export function ProvenanceGraph({ result }: ProvenanceGraphProps) {
     [selectedNodeId, nodes]
   );
 
-  // Upstream & Downstream traversal for path highlighting
+  // Causal-path traversal for highlighting prerequisites and consequences.
   const highlightedNodeIds = useMemo(() => {
     const focusId = activeImpactFocus || hoveredNodeId || selectedNodeId;
     if (!focusId) return new Set<string>();
 
     const activeNodeIds = new Set<string>([focusId]);
 
-    // Backward traversal (upstream root causes)
-    const findUpstream = (targetId: string) => {
+    const findPreconditions = (targetId: string) => {
       for (const edge of edges) {
         if (edge.target === targetId) {
           if (!activeNodeIds.has(edge.source)) {
             activeNodeIds.add(edge.source);
-            findUpstream(edge.source);
+            findPreconditions(edge.source);
           }
         }
       }
     };
 
-    // Forward traversal (downstream consequences)
-    const findDownstream = (sourceId: string) => {
+    const findConsequences = (sourceId: string) => {
       for (const edge of edges) {
         if (edge.source === sourceId) {
           if (!activeNodeIds.has(edge.target)) {
             activeNodeIds.add(edge.target);
-            findDownstream(edge.target);
+            findConsequences(edge.target);
           }
         }
       }
     };
 
-    findUpstream(focusId);
-    findDownstream(focusId);
+    findPreconditions(focusId);
+    findConsequences(focusId);
 
     return activeNodeIds;
   }, [activeImpactFocus, hoveredNodeId, selectedNodeId, edges]);
@@ -500,11 +498,11 @@ export function ProvenanceGraph({ result }: ProvenanceGraphProps) {
                 </p>
               </div>
 
-              {/* Upstream & Downstream Causality Flow */}
+              {/* Causality Flow */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800/80 space-y-1">
                   <p className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
-                    <ArrowRight className="w-3 h-3 text-blue-400 rotate-180" /> Upstream Preconditions:
+                    <ArrowRight className="w-3 h-3 text-blue-400 rotate-180" /> Preconditions:
                   </p>
                   <div className="space-y-1">
                     {edges
@@ -529,7 +527,7 @@ export function ProvenanceGraph({ result }: ProvenanceGraphProps) {
 
                 <div className="p-3 rounded-lg bg-slate-900/50 border border-slate-800/80 space-y-1">
                   <p className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
-                    <ArrowRight className="w-3 h-3 text-red-400" /> Downstream Escalation:
+                    <ArrowRight className="w-3 h-3 text-red-400" /> Consequences:
                   </p>
                   <div className="space-y-1">
                     {edges

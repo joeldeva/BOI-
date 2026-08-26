@@ -1,10 +1,10 @@
-# FraudShield DeceptiScope 3.0
+# FraudShield DeceptiScope
 
-FraudShield DeceptiScope is an evidence-grounded Android APK triage platform. It accepts an APK, validates the archive before analysis, extracts manifest/DEX/certificate evidence, runs a bounded set of local and optional engines, computes a deterministic banking-risk score, produces a careful malware assessment, emits analyst-review indicators, and generates a PDF report.
+FraudShield DeceptiScope is an evidence-grounded Android APK investigation platform for fraudulent applications used in banking fraud. It validates uploaded APKs, extracts static evidence, plans constrained runtime experiments, collects typed runtime evidence, verifies hypotheses deterministically, and produces analyst-facing risk, lineage, campaign and report outputs.
 
-This v3 product is APK-only. The earlier transaction-graph module has been removed from the API, worker, database schema, CLI, frontend, dependencies, tests, and current documentation.
+DeceptiScope is APK-only. Removed non-APK workflows are not part of the current API, worker, database schema, CLI, frontend, dependency set, tests or documentation.
 
-## What the result means
+## Result Semantics
 
 DeceptiScope returns one of these assessment labels:
 
@@ -17,20 +17,37 @@ DeceptiScope returns one of these assessment labels:
 
 None of these labels proves that an APK is legitimate. The API always returns `legitimacy: not-established` and `safe_to_install: false`; publisher identity must be verified against an authoritative package and signing-certificate inventory.
 
-## Analysis pipeline
+## Core Workflow
+
+```text
+APK ingestion
+-> static reverse engineering
+-> normalized evidence
+-> AI investigation
+-> approved experiments
+-> isolated runtime observation
+-> deterministic verification
+-> runtime-aware risk
+-> FraudDNA/campaign intelligence
+-> banking impact/report
+```
+
+## Architecture
 
 1. Stream the upload to a private temporary file with a hard byte limit and SHA-256 calculation.
-2. Reject non-ZIP data, path traversal, duplicate entries, excessive entry counts, and zip-bomb expansion.
+2. Reject non-ZIP data, path traversal, duplicate entries, excessive entry counts and zip-bomb expansion.
 3. Extract bounded archive, Android manifest, DEX, component, permission, certificate, string, network and obfuscation evidence.
-4. Run the multi-engine orchestrator. Every optional engine records `completed`, `disabled`, `unavailable`, `failed`, or `blocked-by-policy`; a missing engine never becomes a clean signal.
+4. Run the multi-engine analyzer. Every optional engine records `completed`, `disabled`, `unavailable`, `failed` or `blocked-by-policy`; a missing engine never becomes a clean signal.
 5. Calculate category-relative Fraud Delta and deterministic static baseline risk (`static_score`) under `apk-risk-2026.5`.
-6. Run the evidence-grounded AI Investigator to plan safe sandbox experiments; execute verified injections (e.g. synthetic OTP) in an isolated emulator, collect runtime observations with explicit trust levels (`PAYLOAD_CORRELATED`, `INSTRUMENTED`, `SYSTEM_OBSERVED`, `LOG_OBSERVED`, `INFERRED`), verify hypotheses with deterministic verifier rules, and compute capped runtime adjustments.
+6. Run the evidence-grounded AI Investigator to plan safe sandbox experiments; execute verified injections in an isolated emulator, collect runtime observations with explicit trust levels (`PAYLOAD_CORRELATED`, `INSTRUMENTED`, `SYSTEM_OBSERVED`, `LOG_OBSERVED`, `INFERRED`), verify hypotheses with deterministic rules, and compute capped runtime adjustments.
 7. Map supported evidence to MITRE ATT&CK for Mobile, generate the malware assessment, persist the result and emit indicators only for high/critical analyses.
 8. Generate analyst narrative and forensic report. Two separate AI concepts are strictly maintained:
-   - **AI Investigator**: Proposes evidence-grounded hypotheses and constrained experiment plans; results are verified deterministically by code and AI cannot modify scores.
-   - **Narrative Generator**: Generates human-readable summaries and explanations from verified structured JSON; cannot alter verdicts, scores, or indicators.
+   - **AI Investigator**: proposes evidence-grounded hypotheses and constrained experiment plans; results are verified deterministically by code and AI cannot modify scores.
+   - **Narrative Generator**: generates human-readable summaries and explanations from verified structured JSON; cannot alter verdicts, scores or indicators.
 
-## Engine matrix
+Third-party attribution and dependency notices are maintained in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LICENSE](LICENSE).
+
+## Engine Matrix
 
 | Engine | Default | Data path | Purpose |
 |---|---:|---|---|
@@ -46,11 +63,9 @@ None of these labels proves that an APK is legitimate. The API always returns `l
 | MalwareBazaar | opt-in | external SHA-256 only | Exact-hash reputation; no sample upload |
 | Dynamic-lite ADB | opt-in | isolated emulator only | Bounded runtime observations with trust provenance; raw logs do not score directly, but trusted deterministically verified evidence contributes capped runtime adjustments under `apk-risk-2026.5` |
 
-The orchestrator is informed by the Pithus project and modernized for the existing FastAPI/PostgreSQL/S3 architecture. It intentionally does not embed Pithus's Django, Elasticsearch, or UI stack. See [Pithus integration](docs/PITHUS_INTEGRATION.md), [third-party notices](THIRD_PARTY_NOTICES.md), and [LICENSE](LICENSE).
+## Local Quick Start
 
-## Local quick start
-
-Requirements: Python 3.11–3.13 (3.12 recommended) and Node.js 24/npm 11 for the browser UI.
+Requirements: Python 3.11-3.13 and Node.js 20.19+ or 22.12+.
 
 ```bash
 python -m venv .venv
@@ -66,7 +81,7 @@ The core product works with Androguard. To enable the heavier local adapters:
 python -m pip install -e '.[analysis]'
 ```
 
-Some optional packages need platform build libraries. Android signature verification also requires the Android SDK Build Tools (`apksigner`). Quark additionally needs an operator-reviewed offline rules directory. Check actual runtime state at `GET /api/v1/system/capabilities` rather than assuming an installed package is usable.
+Some optional packages need platform build libraries. Android signature verification also requires Android SDK Build Tools (`apksigner`). Quark additionally needs an operator-reviewed offline rules directory. Check actual runtime state at `GET /api/v1/system/capabilities` rather than assuming an installed package is usable.
 
 Start a durable worker in another terminal:
 
@@ -100,7 +115,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/jobs/apk-analysis \
 
 Poll `GET /api/v1/jobs/{job_id}`, then follow `result.resource`. Development can also enable the synchronous `POST /api/v1/apk-analyses` route.
 
-## Safe demo
+## Safe Demo
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/demo/seed \
@@ -111,7 +126,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/demo/seed \
 
 The demo is an explicit synthetic fixture. It never substitutes for a failed upload and never performs an external lookup.
 
-## Privacy defaults
+## Privacy Defaults
 
 - Submitted APK bytes stay local unless an operator explicitly enables a configured private MobSF transfer.
 - Public reputation providers receive only SHA-256 and are disabled by default.
@@ -123,10 +138,15 @@ The demo is an explicit synthetic fixture. It never substitutes for a failed upl
 ## Verification
 
 ```bash
-python -m pytest
-python -m ruff check fraudshield tests
-python -m build --no-isolation
-cd frontend && npm run check
+python -m compileall fraudshield tests
+ruff check .
+pytest -ra
+python -m build
+cd frontend
+npm ci
+npm test
+npm run check
+npm run build
 ```
 
 Regenerate the checked-in OpenAPI contract after API changes:
@@ -135,7 +155,7 @@ Regenerate the checked-in OpenAPI contract after API changes:
 make openapi
 ```
 
-## Deployment boundary
+## Deployment Boundary
 
 The repository provides production-oriented software controls: PostgreSQL pooling, S3/KMS artifact storage, durable leased jobs, OIDC/JWKS RBAC, HMAC-chained audit events, metrics, container hardening and Helm resources. It is not itself a certified bank deployment or a substitute for independent malware-lab isolation.
 

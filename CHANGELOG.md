@@ -6,7 +6,7 @@
 - Added bounded APKiD, YARA, `apksigner`, similarity, Quark and private MobSF adapters with explicit per-engine status.
 - Added opt-in SHA-256-only VirusTotal and MalwareBazaar reputation; public APK submission is prohibited.
 - Added an explicit malware-assessment contract that never equates unknown/low-risk evidence with legitimacy or installation safety.
-- Added Pithus attribution, AGPL-3.0 source licensing, engine setup, migration guidance and an APK-only OpenAPI/UI contract.
+- Added third-party notices, AGPL-3.0 source licensing, engine setup, migration guidance and an APK-only OpenAPI/UI contract.
 
 ## 2.1.0 — 2026-08-17
 
