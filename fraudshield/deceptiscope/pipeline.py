@@ -164,8 +164,25 @@ class APKAnalysisPipeline:
             )
             findings["ai_investigation"] = ai_investigation
 
-            emitted = self._emit_candidates(record["id"], candidates, risk)
+            # Stage 2 Deterministic Risk Scoring
+            final_risk = self.scorer.calculate(
+                extraction,
+                fraud_delta,
+                engine_analysis=engine_analysis,
+                runtime_evidence=runtime_evidence,
+                experiment_results=experiment_results,
+                verifications=ai_investigation.get("hypothesis_verifications"),
+            )
+            findings["risk"] = final_risk
+
+            final_assessment = malware_assessment(extraction, final_risk, engine_analysis)
+            findings["malware_assessment"] = final_assessment
+
+            final_candidates = self._indicator_candidates(extraction, final_risk)
+            findings["indicator_candidates"] = final_candidates
+            emitted = self._emit_candidates(record["id"], final_candidates, final_risk)
             findings["emitted_indicators"] = emitted
+
             narrative = self.narratives.explain(findings)
             findings["narrative_metadata"] = {
                 "source": narrative.source,
@@ -176,9 +193,9 @@ class APKAnalysisPipeline:
                 record["id"],
                 result=findings,
                 narrative=narrative.text,
-                overall_score=risk["overall_score"],
-                severity=risk["severity"],
-                confidence=risk["confidence"],
+                overall_score=final_risk["overall_score"],
+                severity=final_risk["severity"],
+                confidence=final_risk["confidence"],
                 analysis_quality=extraction["analysis_quality"],
             )
         except FraudShieldError as exc:
@@ -217,12 +234,18 @@ class APKAnalysisPipeline:
         engine_analysis: dict[str, Any],
     ) -> dict[str, Any]:
         fraud_delta = self.delta.calculate(extraction, category)
-        risk = self.scorer.calculate(extraction, fraud_delta, engine_analysis=engine_analysis)
+        runtime_evidence = list(extraction.get("runtime_evidence", []))
+        experiment_results = list(extraction.get("dynamic_experiment_results", []))
+        risk = self.scorer.calculate(
+            extraction,
+            fraud_delta,
+            engine_analysis=engine_analysis,
+            runtime_evidence=runtime_evidence,
+            experiment_results=experiment_results,
+        )
         assessment = malware_assessment(extraction, risk, engine_analysis)
         mitre = map_mitre_mobile(extraction)
         candidates = self._indicator_candidates(extraction, risk)
-        runtime_evidence = list(extraction.get("runtime_evidence", []))
-        experiment_results = list(extraction.get("dynamic_experiment_results", []))
         findings: dict[str, Any] = {
             "schema_version": "3.0",
             "analysis_id": analysis_id,

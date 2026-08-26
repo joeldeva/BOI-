@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import time
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from fraudshield.core.config import Settings
 from fraudshield.core.errors import ConfigurationError, ValidationError
 from fraudshield.deceptiscope.experiments import ExperimentStatus, ExperimentType
+
+
+class EvidenceTrustLevel(str, Enum):
+    INFERRED = "INFERRED"
+    LOG_OBSERVED = "LOG_OBSERVED"
+    SYSTEM_OBSERVED = "SYSTEM_OBSERVED"
+    INSTRUMENTED = "INSTRUMENTED"
+    PAYLOAD_CORRELATED = "PAYLOAD_CORRELATED"
 
 
 SYNTHETIC_OTP_MARKER = "BOI-TEST-749231"
@@ -42,12 +51,13 @@ DEFAULT_EXPERIMENTS = (
 
 
 class RuntimeEvidence(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
 
     evidence_id: str = Field(pattern=r"^R\d{3}$")
     timestamp_ms: int = Field(ge=0)
     evidence_type: str = Field(min_length=1, max_length=80)
     source: str = "dynamic"
+    trust_level: EvidenceTrustLevel = Field(default=EvidenceTrustLevel.SYSTEM_OBSERVED)
     process: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=500)
     confidence: float = Field(ge=0.0, le=1.0)
@@ -85,13 +95,14 @@ class _RuntimeEvidenceBuilder:
         description: str,
         *,
         confidence: float,
+        trust_level: EvidenceTrustLevel = EvidenceTrustLevel.SYSTEM_OBSERVED,
         metadata: dict[str, Any] | None = None,
         process: str | None = None,
         timestamp_ms: int | None = None,
     ) -> RuntimeEvidence | None:
         clipped_description = _clip(description, 500)
         compact_metadata = _compact_metadata(metadata or {})
-        key = (evidence_type, clipped_description, str(compact_metadata))
+        key = (evidence_type, clipped_description, str(compact_metadata), str(trust_level))
         if key in self._seen:
             return None
         self._seen.add(key)
@@ -100,6 +111,7 @@ class _RuntimeEvidenceBuilder:
             timestamp_ms=self.elapsed_ms() if timestamp_ms is None else max(0, timestamp_ms),
             evidence_type=evidence_type,
             source="dynamic",
+            trust_level=trust_level,
             process=process or self.package_name,
             description=clipped_description,
             confidence=max(0.0, min(1.0, confidence)),
@@ -393,6 +405,7 @@ class DynamicLiteAnalyzer:
             "synthetic_sms_delivered",
             "Synthetic OTP SMS marker was delivered to the emulator",
             confidence=1.0,
+            trust_level=EvidenceTrustLevel.INSTRUMENTED,
             metadata={"marker": SYNTHETIC_OTP_MARKER, "test_data": True},
         )
         time.sleep(0.2)
@@ -404,6 +417,7 @@ class DynamicLiteAnalyzer:
                 "synthetic_marker_correlation",
                 "Synthetic OTP marker appeared later in an application-associated runtime data path",
                 confidence=1.0,
+                trust_level=EvidenceTrustLevel.LOG_OBSERVED,
                 metadata={"marker": SYNTHETIC_OTP_MARKER, "correlation_source": "package-filtered logcat"},
             )
         return ExperimentStatus.COMPLETED, "Synthetic SMS was delivered and correlated where observable", None
@@ -578,6 +592,7 @@ class DynamicLiteAnalyzer:
                     evidence_type,
                     _description_for_log_evidence(evidence_type),
                     confidence=0.75,
+                    trust_level=EvidenceTrustLevel.LOG_OBSERVED,
                     metadata={"line": _clip(line, 500)},
                 )
 
@@ -594,14 +609,21 @@ class DynamicLiteAnalyzer:
                 if normalized.lower() in ANDROID_NOISE_DOMAINS:
                     continue
                 evidence_type = "dns_destination" if not normalized.startswith(("http://", "https://")) else "network_destination"
+                has_marker = SYNTHETIC_OTP_MARKER in line or SYNTHETIC_OTP_MARKER in normalized
+                trust_level = EvidenceTrustLevel.PAYLOAD_CORRELATED if has_marker else EvidenceTrustLevel.LOG_OBSERVED
+                confidence = 0.95 if has_marker else 0.55
                 builder.add(
                     evidence_type,
-                    "Runtime output referenced a network destination without trusting response content",
-                    confidence=0.55,
+                    "Runtime output referenced a network destination with verified synthetic payload correlation"
+                    if has_marker
+                    else "Runtime output referenced a network destination without trusting response content",
+                    confidence=confidence,
+                    trust_level=trust_level,
                     metadata={
                         "destination": _clip(normalized, 300),
                         "observation_source": "package-filtered logcat",
-                        "content_trusted": False,
+                        "content_trusted": has_marker,
+                        "payload_correlated": has_marker,
                     },
                 )
 

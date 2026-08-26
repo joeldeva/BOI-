@@ -68,9 +68,14 @@ class HypothesisVerifier:
         observed = list(static_signals)
         missing: list[str] = []
 
-        synthetic_delivered = "synthetic_sms_delivered" in runtime["types"]
-        sms_access = "sms_access" in runtime["types"]
-        marker = "synthetic_marker_correlation" in runtime["types"]
+        synthetic_delivered_items = runtime["by_type"].get("synthetic_sms_delivered", [])
+        sms_access_items = runtime["by_type"].get("sms_access", [])
+        marker_items = runtime["by_type"].get("synthetic_marker_correlation", [])
+
+        synthetic_delivered = bool(synthetic_delivered_items)
+        sms_access = bool(sms_access_items)
+        marker = bool(marker_items)
+
         if synthetic_delivered:
             observed.append("synthetic_sms_delivered")
         else:
@@ -87,11 +92,27 @@ class HypothesisVerifier:
         failed = _has_failed_experiment(experiment, {"SYNTHETIC_SMS", "LOGCAT_CAPTURE"})
         completed_sms = _has_completed_experiment(experiment, {"SYNTHETIC_SMS"})
         static_supported = bool(static_signals)
-        confirmation_allowed = static_supported and synthetic_delivered and sms_access and marker
+
+        has_instrumented_delivery = any(
+            str(ev.get("trust_level")) in {"INSTRUMENTED", "PAYLOAD_CORRELATED"} or float(ev.get("confidence", 0.0) or 0.0) >= 0.95
+            for ev in synthetic_delivered_items
+        )
+        has_trusted_correlation = any(
+            str(ev.get("trust_level")) in {"INSTRUMENTED", "PAYLOAD_CORRELATED"} or float(ev.get("confidence", 0.0) or 0.0) >= 0.95
+            for ev in (sms_access_items + marker_items)
+        )
+        confirmation_allowed = (
+            static_supported
+            and synthetic_delivered
+            and (sms_access or marker)
+            and has_instrumented_delivery
+            and has_trusted_correlation
+        )
+
         if confirmation_allowed:
             status = "CONFIRMED"
             strength = 1.0
-            explanation = "OTP interception confirmed by static SMS capability plus synthetic SMS delivery, SMS-access runtime signal, and synthetic marker correlation."
+            explanation = "OTP interception confirmed by static SMS capability plus instrumented synthetic SMS delivery and correlated marker access."
         elif failed:
             status = "INCONCLUSIVE"
             strength = 0.35 if static_supported else 0.1
@@ -102,8 +123,12 @@ class HypothesisVerifier:
             explanation = "Synthetic SMS was delivered, but no package-associated SMS access or marker correlation was observed."
         elif static_supported and (synthetic_delivered or sms_access or marker):
             status = "SUPPORTED"
-            strength = 0.75
-            explanation = "OTP hypothesis remains supported by static evidence and partial runtime evidence, but confirmation requirements are incomplete."
+            strength = 0.75 if (sms_access or marker) else 0.55
+            explanation = (
+                "OTP hypothesis is supported by static capability and runtime signals, but generic log matching without verified instrumentation does not meet confirmation criteria."
+                if not (has_instrumented_delivery and has_trusted_correlation)
+                else "OTP hypothesis remains supported by static evidence and partial runtime evidence, but confirmation requirements are incomplete."
+            )
         elif static_supported:
             status = "SUPPORTED"
             strength = 0.45
@@ -112,6 +137,7 @@ class HypothesisVerifier:
             status = _downgrade_unconfirmed(hypothesis)
             strength = 0.15
             explanation = "OTP hypothesis lacks deterministic static and runtime support."
+
         return _verification(
             hypothesis,
             findings,
@@ -141,6 +167,15 @@ class HypothesisVerifier:
         static_supported = _has_static_network_signal(findings)
         failed = _has_failed_experiment(experiment, {"NETWORK_OBSERVATION", "SYNTHETIC_SMS"})
         completed_network = _has_completed_experiment(experiment, {"NETWORK_OBSERVATION"})
+
+        has_payload_correlation = any(
+            str(ev.get("trust_level")) == "PAYLOAD_CORRELATED"
+            or ev.get("metadata", {}).get("payload_correlated") is True
+            or "BOI-TEST" in str(ev.get("metadata", {}).get("destination", ""))
+            or "BOI-TEST" in str(ev.get("metadata", {}).get("payload", ""))
+            for ev in network_items
+        )
+
         observed = []
         missing = []
         if static_supported:
@@ -154,11 +189,17 @@ class HypothesisVerifier:
         else:
             missing.append("network_destination")
 
-        confirmation_allowed = bool(marker_items and network_items and marker_then_network)
+        confirmation_allowed = bool(
+            marker_items
+            and network_items
+            and marker_then_network
+            and has_payload_correlation
+        )
+
         if confirmation_allowed:
             status = "CONFIRMED"
             strength = 0.95
-            explanation = "Data exfiltration confirmed by synthetic marker correlation followed by outbound destination evidence."
+            explanation = "Data exfiltration confirmed by verified payload-level correlation between synthetic marker and outbound transmission."
         elif failed:
             status = "INCONCLUSIVE"
             strength = 0.35 if static_supported else 0.1
@@ -167,14 +208,19 @@ class HypothesisVerifier:
             status = "CONTRADICTED"
             strength = 0.3
             explanation = "Synthetic marker was observed, but completed network observation produced no outbound destination evidence."
+        elif marker_items and network_items and marker_then_network:
+            status = "SUPPORTED"
+            strength = 0.60
+            explanation = "Synthetic marker was observed in logcat, followed temporally by network activity, but payload content correlation was not verified (temporal correlation only; capped at SUPPORTED)."
         elif static_supported or marker_items or network_items:
             status = "SUPPORTED"
-            strength = 0.6
+            strength = 0.50
             explanation = "Data exfiltration hypothesis has partial support, but deterministic confirmation requirements are incomplete."
         else:
             status = _downgrade_unconfirmed(hypothesis)
             strength = 0.15
             explanation = "Data exfiltration hypothesis lacks deterministic static or runtime support."
+
         return _verification(
             hypothesis,
             findings,
@@ -199,9 +245,17 @@ class HypothesisVerifier:
         runtime = _runtime_index(findings)
         experiment = _experiment_index(findings)
         static_supported = _has_static_accessibility_signal(findings)
-        runtime_supported = "accessibility_behavior" in runtime["types"]
+        acc_items = runtime["by_type"].get("accessibility_behavior", [])
+        runtime_supported = bool(acc_items)
         failed = _has_failed_experiment(experiment, {"ACCESSIBILITY_OBSERVATION", "LOGCAT_CAPTURE"})
         completed_accessibility = _has_completed_experiment(experiment, {"ACCESSIBILITY_OBSERVATION"})
+
+        has_system_binding = any(
+            str(ev.get("trust_level")) in {"SYSTEM_OBSERVED", "INSTRUMENTED"}
+            or "dumpsys" in str(ev.get("metadata", {}))
+            for ev in acc_items
+        )
+
         observed = []
         missing = []
         if static_supported:
@@ -213,11 +267,12 @@ class HypothesisVerifier:
         else:
             missing.append("accessibility_behavior")
 
-        confirmation_allowed = static_supported and runtime_supported
+        confirmation_allowed = static_supported and runtime_supported and has_system_binding
+
         if confirmation_allowed:
             status = "CONFIRMED"
             strength = 0.95
-            explanation = "Accessibility abuse confirmed by static accessibility capability and runtime accessibility behavior."
+            explanation = "Accessibility abuse confirmed by static accessibility capability and verified system-level active service binding."
         elif failed:
             status = "INCONCLUSIVE"
             strength = 0.35 if static_supported else 0.1
@@ -226,14 +281,19 @@ class HypothesisVerifier:
             status = "CONTRADICTED"
             strength = 0.3
             explanation = "Accessibility observation completed, but no accessibility runtime behavior was observed."
+        elif static_supported and runtime_supported:
+            status = "SUPPORTED"
+            strength = 0.70
+            explanation = "Accessibility behavior signals were observed in application logs, but active service binding was not confirmed by system instrumentation."
         elif static_supported or runtime_supported:
             status = "SUPPORTED"
-            strength = 0.6
+            strength = 0.50
             explanation = "Accessibility hypothesis has partial deterministic support but lacks complete confirmation evidence."
         else:
             status = _downgrade_unconfirmed(hypothesis)
             strength = 0.15
             explanation = "Accessibility hypothesis lacks deterministic static and runtime support."
+
         return _verification(
             hypothesis,
             findings,

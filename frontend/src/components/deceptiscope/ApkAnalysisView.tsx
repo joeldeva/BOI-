@@ -135,6 +135,22 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
             </div>
           ))}
         </div>
+
+        <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-slate-950/40 border border-slate-800 text-xs">
+          <span className="font-mono text-slate-400">Model: <strong className="text-white">{risk.model_version}</strong></span>
+          <span className="text-slate-600">|</span>
+          <span className="text-slate-300">Static Risk: <strong className="font-mono text-blue-400">{risk.static_score ?? risk.overall_score}</strong></span>
+          <span className="text-slate-600">+</span>
+          <span className="text-slate-300">Verified Runtime Adjustment: <strong className="font-mono text-emerald-400">+{risk.runtime_adjustment ?? 0}</strong></span>
+          <span className="text-slate-600">=</span>
+          <span className="text-slate-300">Final Fraud Risk: <strong className="font-mono text-orange-400">{risk.overall_score}</strong></span>
+          {risk.runtime_confirmation !== undefined && risk.runtime_confirmation > 0 && (
+            <>
+              <span className="text-slate-600">|</span>
+              <span className="text-slate-400 font-mono">Runtime Confirmation: <strong className="text-emerald-300">{(risk.runtime_confirmation * 100).toFixed(0)}%</strong></span>
+            </>
+          )}
+        </div>
       </section>
 
       <InvestigationTimeline result={result} />
@@ -265,13 +281,27 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
         <div className="soc-card p-6 space-y-4">
           <div className="flex items-center gap-2 border-b border-slate-800 pb-3"><Shield className="w-5 h-5 text-red-400" /><h3 className="text-base font-bold text-white">Deterministic evidence rules ({risk.evidence.length})</h3></div>
           <div className="space-y-2 max-h-[34rem] overflow-y-auto pr-1">
-            {risk.evidence.map((evidence) => (
-              <div key={evidence.rule_id} className="p-3 rounded-lg bg-slate-950 border border-slate-800 space-y-1">
-                <div className="flex items-center justify-between gap-2"><span className="text-xs font-bold text-white">{evidence.title}</span><span className="text-xs font-mono font-bold text-orange-400">+{evidence.points}</span></div>
-                <p className="text-xs text-slate-400">{evidence.rationale}</p>
-                <p className="text-[10px] font-mono text-slate-500">{evidence.rule_id}</p>
-              </div>
-            ))}
+            {risk.evidence.map((evidence) => {
+              const isRuntime = evidence.rule_id.startsWith('RUNTIME-');
+              return (
+                <div key={evidence.rule_id} className={`p-3 rounded-lg border space-y-1 ${isRuntime ? 'bg-emerald-950/20 border-emerald-500/30' : 'bg-slate-950 border-slate-800'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white">{evidence.title}</span>
+                      {isRuntime && <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">RUNTIME VERIFIED</span>}
+                    </div>
+                    <span className={`text-xs font-mono font-bold ${isRuntime ? 'text-emerald-400' : 'text-orange-400'}`}>+{evidence.points}</span>
+                  </div>
+                  <p className="text-xs text-slate-400">{evidence.rationale}</p>
+                  <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
+                    <span>{evidence.rule_id}</span>
+                    {evidence.evidence_ids && evidence.evidence_ids.length > 0 && (
+                      <span className="text-emerald-400/80">Triggered by: {evidence.evidence_ids.join(', ')}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

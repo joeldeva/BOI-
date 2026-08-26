@@ -111,7 +111,10 @@ export interface ApkRiskEvidence {
   title: string;
   category: string;
   points: number;
+  base_points?: number;
   rationale: string;
+  required_evidence?: string;
+  evidence_ids?: string[];
   artifacts: string[];
   source_finding_id?: string;
 }
@@ -349,6 +352,7 @@ export interface RuntimeEvidence {
   timestamp_ms: number;
   evidence_type: string;
   source: 'dynamic' | string;
+  trust_level?: 'INFERRED' | 'LOG_OBSERVED' | 'SYSTEM_OBSERVED' | 'INSTRUMENTED' | 'PAYLOAD_CORRELATED' | string;
   process: string;
   description: string;
   confidence: number;
@@ -376,6 +380,9 @@ export interface ApkAnalysisResult {
   engine_analysis: EngineAnalysis;
   risk: {
     overall_score: number;
+    static_score?: number;
+    runtime_adjustment?: number;
+    runtime_confirmation?: number;
     severity: SeverityLevel;
     confidence: number;
     model_version: string;
@@ -388,6 +395,8 @@ export interface ApkAnalysisResult {
       fraud_impersonation: number;
       evasion_resilience: number;
     };
+    static_rules?: ApkRiskEvidence[];
+    runtime_rules?: ApkRiskEvidence[];
     evidence: ApkRiskEvidence[];
   };
   fraud_delta: FraudDelta;
