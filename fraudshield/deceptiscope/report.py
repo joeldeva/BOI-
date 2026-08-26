@@ -11,6 +11,8 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from fraudshield.deceptiscope.impact import derive_banking_impact
+
 
 NAVY = colors.HexColor("#0B1930")
 BLUE = colors.HexColor("#1677FF")
@@ -39,9 +41,6 @@ def _severity_color(severity: str) -> colors.Color:
         "LOW": GREEN,
         "LOW_RISK_OBSERVED": GREEN,
     }.get(severity.upper(), SLATE)
-
-
-from fraudshield.deceptiscope.impact import derive_banking_impact
 
 
 def build_analysis_pdf(analysis: dict[str, Any]) -> bytes:
