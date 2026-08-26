@@ -960,3 +960,287 @@ class JobRepository:
                     "job_not_retryable", "Only a failed or cancelled job can be retried"
                 )
         return self.get(job_id)
+
+
+def _fingerprint_from_row(row: Mapping[str, Any]) -> Any:
+    from fraudshield.deceptiscope.frauddna.models import FraudDNAFingerprint
+
+    d = dict(row)
+    return FraudDNAFingerprint(
+        apk_sha256=d["apk_sha256"],
+        app_identity=d["app_identity"],
+        package_name=d["package_name"],
+        app_label=d.get("app_label") or "",
+        signer_fingerprints=loads(d.get("signer_fingerprints_json"), []),
+        icon_phash=d.get("icon_phash"),
+        dex_fingerprints=loads(d.get("dex_fingerprints_json"), []),
+        dex_fuzzy_hash=d.get("dex_fuzzy_hash"),
+        behavior_signatures=loads(d.get("behavior_signatures_json"), []),
+        permissions=loads(d.get("permissions_json"), []),
+        banking_capabilities=loads(d.get("banking_capabilities_json"), []),
+        domains=loads(d.get("domains_json"), []),
+        urls=loads(d.get("urls_json"), []),
+        ips=loads(d.get("ips_json"), []),
+        firebase_project_ids=loads(d.get("firebase_project_ids_json"), []),
+        recovered_payload_hashes=loads(d.get("recovered_payload_hashes_json"), []),
+        metadata=loads(d.get("metadata_json"), {}),
+    )
+
+
+def _campaign_from_row(row: Mapping[str, Any], member_sha256s: list[str]) -> Any:
+    from fraudshield.deceptiscope.frauddna.models import Campaign
+
+    d = dict(row)
+    return Campaign(
+        campaign_id=d["campaign_id"],
+        name=d["name"],
+        member_sha256s=member_sha256s,
+        primary_signatures=loads(d.get("primary_signatures_json"), []),
+        shared_infrastructure=loads(d.get("shared_infrastructure_json"), []),
+        shared_firebase_projects=loads(d.get("shared_firebase_projects_json"), []),
+        shared_signer_fingerprints=loads(d.get("shared_signer_fingerprints_json"), []),
+        created_at=d.get("created_at"),
+    )
+
+
+class FraudDNARepository:
+    """Durable SQLite/PostgreSQL repository for FraudDNA fingerprints and threat actor campaigns."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def save_fingerprint(
+        self,
+        fp: Any,
+        *,
+        analysis_id: str | None = None,
+        connection: Any = None,
+    ) -> None:
+        now = utc_now()
+        sql = """
+            INSERT INTO frauddna_fingerprints (
+                apk_sha256, app_identity, package_name, app_label,
+                signer_fingerprints_json, icon_phash, dex_fingerprints_json, dex_fuzzy_hash,
+                behavior_signatures_json, permissions_json, banking_capabilities_json,
+                domains_json, urls_json, ips_json, firebase_project_ids_json,
+                recovered_payload_hashes_json, metadata_json, analysis_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (apk_sha256) DO UPDATE SET
+                app_identity = excluded.app_identity,
+                package_name = excluded.package_name,
+                app_label = excluded.app_label,
+                signer_fingerprints_json = excluded.signer_fingerprints_json,
+                icon_phash = excluded.icon_phash,
+                dex_fingerprints_json = excluded.dex_fingerprints_json,
+                dex_fuzzy_hash = excluded.dex_fuzzy_hash,
+                behavior_signatures_json = excluded.behavior_signatures_json,
+                permissions_json = excluded.permissions_json,
+                banking_capabilities_json = excluded.banking_capabilities_json,
+                domains_json = excluded.domains_json,
+                urls_json = excluded.urls_json,
+                ips_json = excluded.ips_json,
+                firebase_project_ids_json = excluded.firebase_project_ids_json,
+                recovered_payload_hashes_json = excluded.recovered_payload_hashes_json,
+                metadata_json = excluded.metadata_json,
+                analysis_id = coalesce(excluded.analysis_id, frauddna_fingerprints.analysis_id),
+                updated_at = excluded.updated_at
+        """
+        params = (
+            fp.apk_sha256,
+            fp.app_identity,
+            fp.package_name,
+            fp.app_label,
+            dumps(fp.signer_fingerprints),
+            fp.icon_phash,
+            dumps(fp.dex_fingerprints),
+            fp.dex_fuzzy_hash,
+            dumps(fp.behavior_signatures),
+            dumps(fp.permissions),
+            dumps(fp.banking_capabilities),
+            dumps(fp.domains),
+            dumps(fp.urls),
+            dumps(fp.ips),
+            dumps(fp.firebase_project_ids),
+            dumps(fp.recovered_payload_hashes),
+            dumps(fp.metadata),
+            analysis_id,
+            now,
+            now,
+        )
+        if connection is not None:
+            connection.execute(sql, params)
+        else:
+            with self.db.transaction() as conn:
+                conn.execute(sql, params)
+
+    def get_fingerprint(
+        self,
+        apk_sha256: str,
+        *,
+        connection: Any = None,
+    ) -> Any | None:
+        sql = "SELECT * FROM frauddna_fingerprints WHERE apk_sha256 = ?"
+        if connection is not None:
+            cursor = connection.execute(sql, (apk_sha256,))
+            row = cursor.fetchone()
+            return _fingerprint_from_row(row) if row else None
+        with self.db.connect() as conn:
+            cursor = conn.execute(sql, (apk_sha256,))
+            row = cursor.fetchone()
+            return _fingerprint_from_row(row) if row else None
+
+    def list_fingerprints(
+        self,
+        *,
+        exclude_sha256: str | None = None,
+        connection: Any = None,
+    ) -> list[Any]:
+        sql = "SELECT * FROM frauddna_fingerprints"
+        params: tuple[Any, ...] = ()
+        if exclude_sha256:
+            sql += " WHERE apk_sha256 != ?"
+            params = (exclude_sha256,)
+        sql += " ORDER BY created_at ASC"
+
+        if connection is not None:
+            cursor = connection.execute(sql, params)
+            return [_fingerprint_from_row(r) for r in cursor.fetchall()]
+        with self.db.connect() as conn:
+            cursor = conn.execute(sql, params)
+            return [_fingerprint_from_row(r) for r in cursor.fetchall()]
+
+    def save_campaign(
+        self,
+        campaign: Any,
+        *,
+        connection: Any = None,
+    ) -> None:
+        now = utc_now()
+        sql = """
+            INSERT INTO campaigns (
+                campaign_id, name, primary_signatures_json, shared_infrastructure_json,
+                shared_firebase_projects_json, shared_signer_fingerprints_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (campaign_id) DO UPDATE SET
+                name = excluded.name,
+                primary_signatures_json = excluded.primary_signatures_json,
+                shared_infrastructure_json = excluded.shared_infrastructure_json,
+                shared_firebase_projects_json = excluded.shared_firebase_projects_json,
+                shared_signer_fingerprints_json = excluded.shared_signer_fingerprints_json,
+                updated_at = excluded.updated_at
+        """
+        params = (
+            campaign.campaign_id,
+            campaign.name,
+            dumps(campaign.primary_signatures),
+            dumps(campaign.shared_infrastructure),
+            dumps(campaign.shared_firebase_projects),
+            dumps(campaign.shared_signer_fingerprints),
+            campaign.created_at or now,
+            now,
+        )
+        if connection is not None:
+            connection.execute(sql, params)
+            for sha in campaign.member_sha256s:
+                connection.execute(
+                    """
+                    INSERT INTO campaign_members (campaign_id, apk_sha256, joined_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT (campaign_id, apk_sha256) DO NOTHING
+                    """,
+                    (campaign.campaign_id, sha, now),
+                )
+        else:
+            with self.db.transaction() as conn:
+                conn.execute(sql, params)
+                for sha in campaign.member_sha256s:
+                    conn.execute(
+                        """
+                        INSERT INTO campaign_members (campaign_id, apk_sha256, joined_at)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT (campaign_id, apk_sha256) DO NOTHING
+                        """,
+                        (campaign.campaign_id, sha, now),
+                    )
+
+    def get_campaign(
+        self,
+        campaign_id: str,
+        *,
+        connection: Any = None,
+    ) -> Any | None:
+        sql_camp = "SELECT * FROM campaigns WHERE campaign_id = ?"
+        sql_members = "SELECT apk_sha256 FROM campaign_members WHERE campaign_id = ? ORDER BY joined_at ASC"
+
+        def _fetch(conn: Any) -> Any | None:
+            c_cursor = conn.execute(sql_camp, (campaign_id,))
+            c_row = c_cursor.fetchone()
+            if not c_row:
+                return None
+            m_cursor = conn.execute(sql_members, (campaign_id,))
+            member_shas = [m["apk_sha256"] for m in m_cursor.fetchall()]
+            return _campaign_from_row(c_row, member_shas)
+
+        if connection is not None:
+            return _fetch(connection)
+        with self.db.connect() as conn:
+            return _fetch(conn)
+
+    def get_campaign_for_sample(
+        self,
+        apk_sha256: str,
+        *,
+        connection: Any = None,
+    ) -> Any | None:
+        sql = "SELECT campaign_id FROM campaign_members WHERE apk_sha256 = ? LIMIT 1"
+        if connection is not None:
+            cursor = connection.execute(sql, (apk_sha256,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self.get_campaign(row["campaign_id"], connection=connection)
+        with self.db.connect() as conn:
+            cursor = conn.execute(sql, (apk_sha256,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return self.get_campaign(row["campaign_id"], connection=conn)
+
+    def list_campaigns(
+        self,
+        *,
+        connection: Any = None,
+    ) -> list[Any]:
+        sql = "SELECT * FROM campaigns ORDER BY created_at DESC"
+
+        def _fetch(conn: Any) -> list[Any]:
+            cursor = conn.execute(sql)
+            results = []
+            for r in cursor.fetchall():
+                cid = r["campaign_id"]
+                m_cursor = conn.execute(
+                    "SELECT apk_sha256 FROM campaign_members WHERE campaign_id = ? ORDER BY joined_at ASC",
+                    (cid,),
+                )
+                members = [m["apk_sha256"] for m in m_cursor.fetchall()]
+                results.append(_campaign_from_row(r, members))
+            return results
+
+        if connection is not None:
+            return _fetch(connection)
+        with self.db.connect() as conn:
+            return _fetch(conn)
+
+    def generate_next_campaign_id(self, connection: Any) -> str:
+        cursor = connection.execute("SELECT campaign_id FROM campaigns WHERE campaign_id LIKE 'CAMP-%'")
+        existing_ids = [r["campaign_id"] for r in cursor.fetchall()]
+        max_idx = 0
+        for cid in existing_ids:
+            try:
+                num = int(cid.split("-")[1])
+                if num > max_idx:
+                    max_idx = num
+            except (IndexError, ValueError):
+                continue
+        return f"CAMP-{max_idx + 1:03d}"
+

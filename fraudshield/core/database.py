@@ -151,6 +151,56 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         DELETE FROM analyses WHERE data_origin = 'synthetic';
         """,
     ),
+    (
+        7,
+        """
+        CREATE TABLE IF NOT EXISTS frauddna_fingerprints (
+            apk_sha256 TEXT PRIMARY KEY,
+            app_identity TEXT NOT NULL,
+            package_name TEXT NOT NULL,
+            app_label TEXT NOT NULL DEFAULT '',
+            signer_fingerprints_json TEXT NOT NULL DEFAULT '[]',
+            icon_phash TEXT,
+            dex_fingerprints_json TEXT NOT NULL DEFAULT '[]',
+            dex_fuzzy_hash TEXT,
+            behavior_signatures_json TEXT NOT NULL DEFAULT '[]',
+            permissions_json TEXT NOT NULL DEFAULT '[]',
+            banking_capabilities_json TEXT NOT NULL DEFAULT '[]',
+            domains_json TEXT NOT NULL DEFAULT '[]',
+            urls_json TEXT NOT NULL DEFAULT '[]',
+            ips_json TEXT NOT NULL DEFAULT '[]',
+            firebase_project_ids_json TEXT NOT NULL DEFAULT '[]',
+            recovered_payload_hashes_json TEXT NOT NULL DEFAULT '[]',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            analysis_id TEXT REFERENCES analyses(id) ON DELETE SET NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_frauddna_package ON frauddna_fingerprints(package_name);
+        CREATE INDEX IF NOT EXISTS idx_frauddna_app_identity ON frauddna_fingerprints(app_identity);
+        CREATE INDEX IF NOT EXISTS idx_frauddna_created_at ON frauddna_fingerprints(created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS campaigns (
+            campaign_id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            primary_signatures_json TEXT NOT NULL DEFAULT '[]',
+            shared_infrastructure_json TEXT NOT NULL DEFAULT '[]',
+            shared_firebase_projects_json TEXT NOT NULL DEFAULT '[]',
+            shared_signer_fingerprints_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_campaigns_created_at ON campaigns(created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS campaign_members (
+            campaign_id TEXT NOT NULL REFERENCES campaigns(campaign_id) ON DELETE CASCADE,
+            apk_sha256 TEXT NOT NULL REFERENCES frauddna_fingerprints(apk_sha256) ON DELETE CASCADE,
+            joined_at TEXT NOT NULL,
+            PRIMARY KEY(campaign_id, apk_sha256)
+        );
+        CREATE INDEX IF NOT EXISTS idx_campaign_members_sha ON campaign_members(apk_sha256);
+        """,
+    ),
 )
 
 

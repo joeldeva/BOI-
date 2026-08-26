@@ -41,10 +41,12 @@ class APKAnalysisPipeline:
         settings: Settings,
         analyses: AnalysisRepository,
         indicators: IndicatorRepository,
+        frauddna: Any | None = None,
     ) -> None:
         self.settings = settings
         self.analyses = analyses
         self.indicators = indicators
+        self.frauddna = frauddna
         self.delta = FraudDeltaCalculator(settings.baseline_path)
         self.scorer = RiskScorer()
         self.narratives = LLMNarrativeClient(settings)
@@ -54,7 +56,7 @@ class APKAnalysisPipeline:
         self.reverse_analyzer = MethodLevelAnalyzer()
         self.payload_recovery_manager = PayloadRecoveryManager()
         self.payload_analyzer = PayloadAnalyzer(self.reverse_analyzer)
-        self.campaign_correlator = CampaignCorrelator()
+        self.campaign_correlator = CampaignCorrelator(repository=frauddna)
         self.frauddna_extractor = FraudDNAExtractor()
         self.brand_analyzer = BrandImpersonationAnalyzer()
         self.firebase_extractor = FirebaseExtractor()
@@ -282,7 +284,10 @@ class APKAnalysisPipeline:
                 "analysis_id": record["id"],
                 "sha256": sha256,
             })
-            campaign, related_samples = self.campaign_correlator.correlate(frauddna_fp)
+            campaign, related_samples = self.campaign_correlator.correlate(
+                frauddna_fp,
+                analysis_id=record["id"],
+            )
 
             findings: dict[str, Any] = {
                 "schema_version": "3.0",

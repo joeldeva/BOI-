@@ -7,6 +7,7 @@ from fraudshield.core.database import Database
 from fraudshield.core.repository import (
     AnalysisRepository,
     AuditRepository,
+    FraudDNARepository,
     IndicatorRepository,
     JobRepository,
 )
@@ -23,6 +24,7 @@ class ServiceContainer:
     indicators: IndicatorRepository
     jobs: JobRepository
     artifacts: ArtifactStore
+    frauddna: FraudDNARepository
     apk_pipeline: APKAnalysisPipeline
 
     @classmethod
@@ -43,6 +45,7 @@ class ServiceContainer:
         indicators = IndicatorRepository(db)
         jobs = JobRepository(db)
         artifacts = build_artifact_store(settings)
+        frauddna = FraudDNARepository(db)
         return cls(
             settings=settings,
             db=db,
@@ -51,5 +54,11 @@ class ServiceContainer:
             indicators=indicators,
             jobs=jobs,
             artifacts=artifacts,
-            apk_pipeline=APKAnalysisPipeline(settings, analyses, indicators),
+            frauddna=frauddna,
+            apk_pipeline=APKAnalysisPipeline(
+                settings,
+                analyses,
+                indicators,
+                frauddna=frauddna,
+            ),
         )
