@@ -38,11 +38,34 @@ class FakeDynamicAnalyzer(DynamicLiteAnalyzer):
         self.calls: list[tuple[str, ...]] = []
         self._snapshot_count = 0
 
+    def observe(
+        self,
+        apk_path: Path,
+        package_name: str,
+        *,
+        experiment_types: list[Any] | None = None,
+        plan_items: list[dict[str, Any]] | None = None,
+        active_marker: Any | None = None,
+    ) -> dict[str, Any]:
+        marker_str = getattr(active_marker, "value", str(active_marker or SYNTHETIC_OTP_MARKER))
+        if SYNTHETIC_OTP_MARKER in self.logcat and marker_str != SYNTHETIC_OTP_MARKER:
+            self.logcat = self.logcat.replace(SYNTHETIC_OTP_MARKER, marker_str)
+        return super().observe(
+            apk_path,
+            package_name,
+            experiment_types=experiment_types,
+            plan_items=plan_items,
+            active_marker=active_marker,
+        )
+
     def _run(self, *args: str, timeout: int | None = None) -> str:
         key = tuple(args)
         self.calls.append(key)
-        if key in self.fail:
-            raise self.fail[key]
+        for fail_key, exc in self.fail.items():
+            if key == fail_key or (key[:2] == ("emu", "sms") and fail_key[:2] == ("emu", "sms")):
+                raise exc
+            if len(key) >= 3 and len(fail_key) >= 3 and key[:3] == fail_key[:3]:
+                raise exc
         if key == ("shell", "getprop", "ro.kernel.qemu"):
             return self.qemu
         if args[0] == "install":

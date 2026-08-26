@@ -157,6 +157,14 @@ class FridaHost:
             return "webview_activity"
         return f"instrumented_{obs}"
 
+    def observation_session(
+        self,
+        package_name: str,
+        observer_names: list[str],
+    ) -> FridaObservationSession:
+        """Creates a managed observation session active during an experiment execution window."""
+        return FridaObservationSession(self, package_name, observer_names)
+
     def run_observers(
         self,
         package_name: str,
@@ -170,81 +178,99 @@ class FridaHost:
         If Frida is unavailable or the process fails, returns UNAVAILABLE or FAILED
         with diagnostic warnings without raising unhandled exceptions.
         """
-        st = self.status()
+        with self.observation_session(package_name, observer_names) as session:
+            if session.status == RuntimeObserverStatus.COMPLETED:
+                time.sleep(timeout_seconds)
+            return session.status, session.events, session.warnings
+
+
+class FridaObservationSession:
+    """
+    Manages an active Frida instrumentation session during an experiment execution window.
+    Ensures hooks are attached and active BEFORE the controlled experiment action occurs.
+    """
+
+    def __init__(
+        self,
+        frida_host: FridaHost,
+        package_name: str,
+        observer_names: list[str],
+    ) -> None:
+        self.frida_host = frida_host
+        self.package_name = package_name
+        self.observer_names = observer_names
+        self.status = RuntimeObserverStatus.UNAVAILABLE
+        self.events: list[FridaRuntimeEvent] = []
+        self.warnings: list[str] = []
+        self._session: Any = None
+        self._script: Any = None
+        self._device: Any = None
+        self._pid: int | None = None
+
+    def __enter__(self) -> FridaObservationSession:
+        st = self.frida_host.status()
         if not st.get("frida_installed"):
-            return (
-                RuntimeObserverStatus.UNAVAILABLE,
-                [],
-                ["Frida package is not installed in Python environment."],
-            )
+            self.warnings.append("Frida package is not installed in Python environment.")
+            return self
 
         try:
             import frida  # type: ignore
         except ImportError:
-            return (
-                RuntimeObserverStatus.UNAVAILABLE,
-                [],
-                ["Frida module could not be loaded."],
-            )
+            self.warnings.append("Frida module could not be loaded.")
+            return self
 
-        bundle_script = self.registry.build_bundle(observer_names)
+        bundle_script = self.frida_host.registry.build_bundle(self.observer_names)
         if not bundle_script.strip():
-            return (
-                RuntimeObserverStatus.SKIPPED,
-                [],
-                ["No observer scripts configured for requested experiments."],
-            )
-
-        events: list[FridaRuntimeEvent] = []
-        warnings: list[str] = []
+            self.status = RuntimeObserverStatus.UNAVAILABLE
+            return self
 
         def on_message(message: dict[str, Any], data: Any) -> None:
-            parsed = self.process_raw_message(message, data)
+            parsed = self.frida_host.process_raw_message(message, data)
             if parsed:
-                events.append(parsed)
+                self.events.append(parsed)
 
-        session = None
-        script = None
         try:
             device_manager = frida.get_device_manager()
-            device = None
-            if self.settings.adb_emulator_serial:
-                device = device_manager.get_device(self.settings.adb_emulator_serial)
+            if self.frida_host.settings.adb_emulator_serial:
+                self._device = device_manager.get_device(self.frida_host.settings.adb_emulator_serial)
             else:
-                device = frida.get_usb_device(timeout=2) or frida.get_remote_device()
+                self._device = frida.get_usb_device(timeout=2) or frida.get_remote_device()
 
-            if not device:
-                return (
-                    RuntimeObserverStatus.UNAVAILABLE,
-                    [],
-                    ["Frida could not find a connected Android emulator device."],
-                )
+            if not self._device:
+                self.warnings.append("Frida could not find a connected Android emulator device.")
+                return self
 
-            pid = device.spawn([package_name])
-            session = device.attach(pid)
-            script = session.create_script(bundle_script)
-            script.on("message", on_message)
-            script.load()
-            device.resume(pid)
+            # Attach to existing running process if possible, or spawn suspended -> attach -> load -> resume
+            try:
+                self._session = self._device.attach(self.package_name)
+            except Exception:
+                self._pid = self._device.spawn([self.package_name])
+                self._session = self._device.attach(self._pid)
 
-            time.sleep(timeout_seconds)
+            self._script = self._session.create_script(bundle_script)
+            self._script.on("message", on_message)
+            self._script.load()
 
-            return RuntimeObserverStatus.COMPLETED, events, warnings
+            if self._pid is not None:
+                self._device.resume(self._pid)
+
+            self.status = RuntimeObserverStatus.COMPLETED
         except Exception as exc:
-            logger.warning("Frida dynamic instrumentation session failed: %s", exc)
-            return (
-                RuntimeObserverStatus.FAILED,
-                events,
-                [f"Frida instrumentation failed: {type(exc).__name__}: {str(exc)[:200]}"],
-            )
-        finally:
-            if script:
-                try:
-                    script.unload()
-                except Exception:
-                    pass
-            if session:
-                try:
-                    session.detach()
-                except Exception:
-                    pass
+            logger.warning("Frida dynamic observation session startup failed: %s", exc)
+            self.status = RuntimeObserverStatus.FAILED
+            self.warnings.append(f"Frida session startup failed: {type(exc).__name__}: {str(exc)[:200]}")
+
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        if self._script:
+            try:
+                self._script.unload()
+            except Exception:
+                pass
+        if self._session:
+            try:
+                self._session.detach()
+            except Exception:
+                pass
+

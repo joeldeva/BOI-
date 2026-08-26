@@ -27,6 +27,13 @@ class HypothesisVerification(BaseModel):
     confirmation_allowed: bool
 
 
+def _trust_str(ev: dict[str, Any]) -> str:
+    tl = ev.get("trust_level")
+    if hasattr(tl, "value"):
+        return str(tl.value).upper()
+    return str(tl or "").upper()
+
+
 class HypothesisVerifier:
     """Deterministically verifies hypothesis states from static/runtime evidence."""
 
@@ -94,11 +101,11 @@ class HypothesisVerifier:
         static_supported = bool(static_signals)
 
         has_instrumented_delivery = any(
-            str(ev.get("trust_level")) in {"INSTRUMENTED", "PAYLOAD_CORRELATED"} or float(ev.get("confidence", 0.0) or 0.0) >= 0.95
+            _trust_str(ev) in {"INSTRUMENTED", "PAYLOAD_CORRELATED", "SYSTEM_OBSERVED"}
             for ev in synthetic_delivered_items
         )
         has_trusted_correlation = any(
-            str(ev.get("trust_level")) in {"INSTRUMENTED", "PAYLOAD_CORRELATED"} or float(ev.get("confidence", 0.0) or 0.0) >= 0.95
+            _trust_str(ev) in {"INSTRUMENTED", "PAYLOAD_CORRELATED"}
             for ev in (sms_access_items + marker_items)
         )
         confirmation_allowed = (
@@ -169,7 +176,7 @@ class HypothesisVerifier:
         completed_network = _has_completed_experiment(experiment, {"NETWORK_OBSERVATION"})
 
         has_payload_correlation = any(
-            str(ev.get("trust_level")) == "PAYLOAD_CORRELATED"
+            _trust_str(ev) == "PAYLOAD_CORRELATED"
             or ev.get("metadata", {}).get("payload_correlated") is True
             for ev in (marker_items + network_items)
         )

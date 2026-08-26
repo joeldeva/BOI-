@@ -266,8 +266,19 @@ class DynamicLiteAnalyzer:
     ) -> DynamicExperimentResult:
         started = builder.elapsed_ms()
         before_count = len(builder.items)
+
+        obs_names = self.frida_host.registry.get_observers_for_experiments([experiment_type])
+        frida_active = bool(obs_names and self.frida_host.status().get("frida_installed") and state.get("launched"))
+
         try:
-            status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
+            if frida_active:
+                # Start Frida observation session BEFORE executing the experiment action
+                with self.frida_host.observation_session(state.get("package_name", "unknown"), obs_names) as session:
+                    status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
+                    if session.events:
+                        self.frida_host.normalize_to_evidence(session.events, builder)
+            else:
+                status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
             error = None
         except subprocess.TimeoutExpired as exc:
             status = ExperimentStatus.TIMED_OUT
@@ -280,21 +291,6 @@ class DynamicLiteAnalyzer:
             unavailable_reason = None
             error = _clip(str(exc), 500)
 
-        # Run defensive instrumented Frida observers if emulator session is active
-        if status == ExperimentStatus.COMPLETED and state.get("launched"):
-            try:
-                obs_names = self.frida_host.registry.get_observers_for_experiments([experiment_type])
-                if obs_names and self.frida_host.status().get("frida_installed"):
-                    _, frida_events, _ = self.frida_host.run_observers(
-                        package_name=state.get("package_name", "unknown"),
-                        observer_names=obs_names,
-                        timeout_seconds=min(5, self.settings.dynamic_timeout_seconds),
-                    )
-                    if frida_events:
-                        self.frida_host.normalize_to_evidence(frida_events, builder)
-            except Exception:
-                pass
-
         new_ids = [item.evidence_id for item in builder.items[before_count:]]
         return DynamicExperimentResult(
             experiment_id=experiment_id,
@@ -306,7 +302,7 @@ class DynamicLiteAnalyzer:
             summary=summary,
             unavailable_reason=unavailable_reason,
             error=error,
-            metadata={"synthetic_otp_marker": SYNTHETIC_OTP_MARKER}
+            metadata={"synthetic_otp_marker": state.get("active_marker", SYNTHETIC_OTP_MARKER)}
             if experiment_type == ExperimentType.SYNTHETIC_SMS
             else {},
         )
@@ -688,6 +684,95 @@ class DynamicLiteAnalyzer:
         if completed.returncode != 0:
             raise RuntimeError((completed.stderr or completed.stdout or "ADB command failed")[:1000])
         return completed.stdout
+
+    def retrieve_file_from_emulator(
+        self,
+        target_package: str,
+        emulator_path: str,
+        max_bytes: int = 20 * 1024 * 1024,
+    ) -> tuple[bool, bytes | None, str | None]:
+        """
+        Safely retrieves a runtime DEX/JAR payload file from the isolated emulator into memory.
+        
+        Strict Security Invariants:
+        1. Employs NO shell=True or string interpolation in shell commands.
+        2. Rejects path traversal (..), null bytes, and non-absolute Android paths.
+        3. Restricts file source to target package directories or approved Android locations.
+        4. Bounds maximum retrieved byte size to prevent memory exhaustion.
+        """
+        if not emulator_path or not isinstance(emulator_path, str):
+            return False, None, "Invalid or missing emulator path"
+
+        # Check 1: Must be absolute Android path
+        if not emulator_path.startswith("/"):
+            return False, None, "Path must be an absolute Android path"
+
+        # Check 2: Reject path traversal
+        if ".." in emulator_path.split("/"):
+            return False, None, "Path traversal sequence rejected"
+
+        # Check 3: Reject null bytes / shell metacharacters
+        if "\x00" in emulator_path or any(c in emulator_path for c in ";|&$`\n\r"):
+            return False, None, "Prohibited characters in file path"
+
+        # Check 4: Package-level scoping
+        # Allowed locations: target app private paths, external data paths, or /data/local/tmp/
+        allowed_prefixes = (
+            f"/data/data/{target_package}/",
+            f"/data/user/0/{target_package}/",
+            f"/sdcard/Android/data/{target_package}/",
+            f"/storage/emulated/0/Android/data/{target_package}/",
+            "/data/local/tmp/",
+        )
+        if not any(emulator_path.startswith(prefix) for prefix in allowed_prefixes):
+            return False, None, f"Path outside approved sandbox locations for package {target_package}"
+
+        if not self.settings.dynamic_analysis_enabled or not self.settings.adb_emulator_serial:
+            return False, None, "Dynamic analysis ADB emulator is not configured"
+
+        # Retrieve bytes via adb exec-out cat or run-as
+        try:
+            # Try direct cat first
+            cmd = [self.settings.adb_path, "-s", self.settings.adb_emulator_serial, "exec-out", "cat", emulator_path]
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                shell=False,
+                timeout=15,
+                check=False,
+            )
+            data = proc.stdout
+            if proc.returncode != 0 or not data:
+                # Try run-as for private app data if accessible
+                cmd_runas = [
+                    self.settings.adb_path,
+                    "-s",
+                    self.settings.adb_emulator_serial,
+                    "exec-out",
+                    "run-as",
+                    target_package,
+                    "cat",
+                    emulator_path,
+                ]
+                proc_runas = subprocess.run(
+                    cmd_runas,
+                    capture_output=True,
+                    shell=False,
+                    timeout=15,
+                    check=False,
+                )
+                if proc_runas.returncode == 0 and proc_runas.stdout:
+                    data = proc_runas.stdout
+
+            if not data:
+                return False, None, f"File could not be read or is empty (code {proc.returncode})"
+
+            if len(data) > max_bytes:
+                return False, None, f"File size ({len(data)} bytes) exceeds maximum allowable limit ({max_bytes} bytes)"
+
+            return True, data, None
+        except Exception as exc:
+            return False, None, f"ADB file retrieval failed: {type(exc).__name__}: {str(exc)[:100]}"
 
 
 def _description_for_log_evidence(evidence_type: str) -> str:

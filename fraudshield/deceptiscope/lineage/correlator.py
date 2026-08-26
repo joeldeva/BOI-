@@ -189,37 +189,55 @@ class DataLineageCorrelator:
         evidence_items: Sequence[Any],
         marker: SyntheticMarker,
     ) -> bool:
-        """Verifies that an egress step corresponds to actual request payload/body containment."""
+        """
+        Verifies that an egress step corresponds to actual outbound request body/payload containment.
+        
+        Strict Trust Rules:
+        - URL query parameter is NOT request body proof.
+        - Destination/hostname/socket is NOT request body proof.
+        - Description text is NOT request body proof.
+        - LOG_OBSERVED evidence can NEVER produce complete exfiltration.
+        - Boolean 'has_synthetic_marker' is NEVER trusted as identity proof.
+        - ONLY explicit captured outbound body/payload fields from trusted instrumentation qualify.
+        """
+        # Explicitly allowed body/payload fields
+        allowed_body_fields = (
+            "body",
+            "body_preview_redacted",
+            "payload",
+            "request_body",
+            "body_bytes_decoded",
+        )
+
         for item in evidence_items:
             ev = item if isinstance(item, dict) else (
                 item.model_dump(mode="json") if hasattr(item, "model_dump") else item.__dict__
             )
             if str(ev.get("evidence_id")) == step.evidence_id:
-                meta = ev.get("metadata", {})
-                trust = str(ev.get("trust_level", ""))
-                # Logcat alone without explicit body cannot produce verified complete exfiltration
-                if trust == "LOG_OBSERVED" and not (meta.get("body_preview_redacted") or meta.get("payload")):
+                trust = str(ev.get("trust_level", "")).upper()
+                # Logcat or unverified observations cannot produce verified complete exfiltration
+                if trust in {"LOG_OBSERVED", "INFERRED", "UNVERIFIED"}:
                     return False
 
-                # Check for marker in body payload, url, preview, destination
-                for k in ("body_preview_redacted", "payload", "body", "preview", "url", "destination"):
-                    val = str(meta.get(k, "") or "")
-                    if val:
+                meta = ev.get("metadata", {})
+                if not isinstance(meta, dict):
+                    continue
+
+                # Check ONLY explicit body/payload fields
+                for k in allowed_body_fields:
+                    val = meta.get(k)
+                    if isinstance(val, str) and val:
                         matched, _ = marker.matches_payload(val)
                         if matched:
                             return True
-
-                if meta.get("has_synthetic_marker") is True or meta.get("event_metadata", {}).get("has_synthetic_marker") is True:
-                    return True
-
-                desc = str(ev.get("description", ""))
-                if desc:
-                    matched, _ = marker.matches_payload(desc)
-                    if matched:
-                        return True
-
-                if trust == "PAYLOAD_CORRELATED" or meta.get("payload_correlated") is True:
-                    return True
+                    elif isinstance(val, bytes) and val:
+                        try:
+                            decoded = val.decode("utf-8", errors="ignore")
+                            matched, _ = marker.matches_payload(decoded)
+                            if matched:
+                                return True
+                        except Exception:
+                            pass
 
         return False
 
@@ -228,31 +246,28 @@ class DataLineageCorrelator:
         ev_dict: dict[str, Any],
         marker: SyntheticMarker,
     ) -> tuple[bool, str | None]:
-        """Inspects all text fields in an evidence dict for marker appearances."""
+        """Inspects text fields in an evidence dict for exact active marker (or valid transform) appearances."""
         # 1. Direct fields
-        fields_to_check = [
-            str(ev_dict.get("description", "")),
-            str(ev_dict.get("value", "")),
-        ]
+        fields_to_check: list[str] = []
+        for field in ("description", "value"):
+            v = ev_dict.get(field)
+            if isinstance(v, str) and v:
+                fields_to_check.append(v)
 
         # 2. Metadata subfields
         metadata = ev_dict.get("metadata", {})
         if isinstance(metadata, dict):
             for k, v in metadata.items():
-                if isinstance(v, str):
+                if isinstance(v, str) and v:
                     fields_to_check.append(v)
                 elif isinstance(v, dict):
                     for sub_k, sub_v in v.items():
-                        if isinstance(sub_v, str):
+                        if isinstance(sub_v, str) and sub_v:
                             fields_to_check.append(sub_v)
 
         for text in fields_to_check:
             matched, transform = marker.matches_payload(text)
             if matched:
                 return True, transform
-
-        # Fallback check for has_synthetic_marker metadata flag with raw marker
-        if metadata.get("has_synthetic_marker") is True or metadata.get("event_metadata", {}).get("has_synthetic_marker") is True:
-            return True, "raw"
 
         return False, None

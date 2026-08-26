@@ -31,7 +31,8 @@ def test_raw_marker_correlation() -> None:
             "description": "Outbound HTTP request to https://evil-c2.net/exfil",
             "api": "okhttp3.OkHttpClient.newCall",
             "metadata": {
-                "url": "https://evil-c2.net/exfil?otp=DS-TEST-OTP-882211",
+                "url": "https://evil-c2.net/exfil",
+                "body_preview_redacted": "otp=DS-TEST-OTP-882211",
                 "has_synthetic_marker": True,
             },
         },

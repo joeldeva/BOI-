@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -120,7 +121,7 @@ class APKAnalysisPipeline:
             experiment_results: list[dict[str, Any]] = []
 
             marker_manager = SyntheticMarkerManager()
-            otp_marker = marker_manager.create_otp_marker(custom_value="BOI-TEST-749231")
+            otp_marker = marker_manager.create_otp_marker()
             recovered_payloads_list: list[dict[str, Any]] = []
 
             if dynamic:
@@ -150,21 +151,41 @@ class APKAnalysisPipeline:
                             loader_name = str(ev_meta.get("loader_type") or "DexClassLoader")
                             r_ev_id = str(dcl_ev.get("evidence_id") or "")
 
-                            if dex_p and Path(dex_p).exists() and Path(dex_p).is_file():
-                                p_obj, raw_b = self.payload_recovery_manager.recover_from_file_path(
-                                    parent_sha256=sha256,
-                                    file_path=Path(dex_p),
-                                    loader=loader_name,
-                                    runtime_evidence_id=r_ev_id,
+                            dex_bytes: bytes | None = None
+                            retrieval_err: str | None = None
+                            if dex_p:
+                                ok, retrieved_b, err_msg = self.dynamic.retrieve_file_from_emulator(
+                                    package_name,
+                                    str(dex_p),
                                 )
+                                if ok and retrieved_b:
+                                    dex_bytes = retrieved_b
+                                else:
+                                    retrieval_err = err_msg or "Failed to retrieve DEX from emulator"
                             elif "raw_bytes" in ev_meta and isinstance(ev_meta["raw_bytes"], bytes):
-                                p_obj, raw_b = self.payload_recovery_manager.process_payload_bytes(
-                                    parent_sha256=sha256,
-                                    raw_bytes=ev_meta["raw_bytes"],
-                                    source="MEMORY_DUMP",
-                                    loader=loader_name,
-                                    runtime_evidence_id=r_ev_id,
-                                )
+                                dex_bytes = ev_meta["raw_bytes"]
+
+                            if dex_bytes:
+                                temp_dex = None
+                                try:
+                                    with tempfile.NamedTemporaryFile(suffix=".dex", delete=False) as tf:
+                                        tf.write(dex_bytes)
+                                        temp_dex = Path(tf.name)
+
+                                    p_obj, raw_b = self.payload_recovery_manager.recover_from_file_path(
+                                        parent_sha256=sha256,
+                                        file_path=temp_dex,
+                                        loader=loader_name,
+                                        runtime_evidence_id=r_ev_id,
+                                    )
+                                    if p_obj.analysis_status == PayloadAnalysisStatus.ANALYZED and raw_b:
+                                        self.payload_analyzer.analyze_payload(p_obj, raw_b)
+                                finally:
+                                    if temp_dex and temp_dex.exists():
+                                        try:
+                                            temp_dex.unlink()
+                                        except Exception:
+                                            pass
                             else:
                                 p_obj = RecoveredPayload(
                                     payload_id=f"PAYLOAD-{len(recovered_payloads_list) + 1:03d}",
@@ -176,12 +197,8 @@ class APKAnalysisPipeline:
                                     loader=loader_name,
                                     runtime_evidence_id=r_ev_id,
                                     analysis_status=PayloadAnalysisStatus.UNAVAILABLE,
-                                    metadata={"reason": "Dynamic loader observed; payload bytes not recoverable on host"},
+                                    metadata={"reason": f"Dynamic loader observed; DEX bytes unavailable ({retrieval_err or 'memory capture not configured'})"},
                                 )
-                                raw_b = None
-
-                            if p_obj.analysis_status == PayloadAnalysisStatus.ANALYZED and raw_b:
-                                self.payload_analyzer.analyze_payload(p_obj, raw_b)
 
                             recovered_payloads_list.append(p_obj.model_dump(mode="json"))
 
