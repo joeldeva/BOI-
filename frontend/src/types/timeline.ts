@@ -7,6 +7,7 @@ import type {
 export type InvestigationPhase =
   | 'ingestion'
   | 'static'
+  | 'engine'
   | 'ai'
   | 'experiment'
   | 'runtime'
@@ -25,21 +26,27 @@ export interface InvestigationEvent {
   experimentId?: string;
   status?: string;
   confidence?: number;
+  evidenceStrength?: number;
+  trustLevel?: string;
+  isAiGenerated?: boolean;
   scoreFrom?: number;
   scoreTo?: number;
+  runtimeAdjustment?: number;
   severity?: SeverityLevel | string;
+  scoringRules?: string[];
 }
 
 /* ---------- phase ordering for chronological sort ---------- */
-const PHASE_ORDER: Record<InvestigationPhase, number> = {
+export const PHASE_ORDER: Record<InvestigationPhase, number> = {
   ingestion: 0,
   static: 1,
-  ai: 2,
-  experiment: 3,
-  runtime: 4,
-  network: 5,
-  verification: 6,
-  scoring: 7,
+  engine: 2,
+  ai: 3,
+  experiment: 4,
+  runtime: 5,
+  network: 6,
+  verification: 7,
+  scoring: 8,
 };
 
 /* ---------- builder helpers ---------- */
@@ -48,7 +55,7 @@ function nextId(prefix: string): string {
   return `${prefix}-${++_seq}`;
 }
 
-function resetSeq(): void {
+export function resetTimelineSeq(): void {
   _seq = 0;
 }
 
@@ -123,6 +130,34 @@ function addStaticEvents(result: ApkAnalysisResult, events: InvestigationEvent[]
   }
 }
 
+function addEngineEvents(result: ApkAnalysisResult, events: InvestigationEvent[]): void {
+  const engineAnalysis = result.engine_analysis;
+  if (!engineAnalysis) return;
+
+  const engines = engineAnalysis.engines || [];
+  const completedEngines = engines.filter((e) => e.status === 'completed');
+  if (completedEngines.length > 0) {
+    events.push({
+      id: nextId('engine'),
+      phase: 'engine',
+      title: 'Static & Heuristic Engines',
+      description: `${completedEngines.length} analysis engine${completedEngines.length > 1 ? 's' : ''} evaluated the APK`,
+      details: completedEngines.map((e) => `${e.label || e.id}: completed`),
+    });
+  }
+
+  const normalizedFindings = engineAnalysis.normalized_findings || [];
+  if (normalizedFindings.length > 0) {
+    events.push({
+      id: nextId('engine'),
+      phase: 'engine',
+      title: 'Normalized Engine Findings',
+      description: `${normalizedFindings.length} normalized security finding${normalizedFindings.length > 1 ? 's' : ''} recorded`,
+      details: normalizedFindings.slice(0, 8).map((f) => `${f.risk_category || 'Security Finding'}: ${f.title}`),
+    });
+  }
+}
+
 function addAIHypothesisEvents(investigation: AIInvestigation, events: InvestigationEvent[]): void {
   for (const hypothesis of investigation.hypotheses) {
     events.push({
@@ -134,6 +169,7 @@ function addAIHypothesisEvents(investigation: AIInvestigation, events: Investiga
       confidence: hypothesis.confidence,
       status: hypothesis.status,
       evidenceIds: hypothesis.supporting_evidence_ids,
+      isAiGenerated: true,
     });
   }
 }
@@ -143,11 +179,12 @@ function addExperimentEvents(investigation: AIInvestigation, events: Investigati
     events.push({
       id: nextId('exp'),
       phase: 'experiment',
-      title: experiment.experiment_type.replaceAll('_', ' '),
+      title: `Experiment Requested: ${experiment.experiment_type.replaceAll('_', ' ')}`,
       description: experiment.objective,
       experimentId: experiment.experiment_id,
       hypothesisId: experiment.hypothesis_id,
       status: experiment.status,
+      isAiGenerated: true,
     });
   }
 }
@@ -155,15 +192,19 @@ function addExperimentEvents(investigation: AIInvestigation, events: Investigati
 function addRuntimeEvents(result: ApkAnalysisResult, events: InvestigationEvent[]): void {
   const runtimeEvidence = result.runtime_evidence ?? [];
   for (const evidence of runtimeEvidence) {
-    const isNetwork = evidence.evidence_type.toLowerCase().includes('network') ||
-                      evidence.evidence_type.toLowerCase().includes('outbound');
+    const isNetwork =
+      evidence.evidence_type.toLowerCase().includes('network') ||
+      evidence.evidence_type.toLowerCase().includes('outbound') ||
+      evidence.evidence_type.toLowerCase().includes('dns');
     events.push({
       id: nextId(isNetwork ? 'net' : 'rt'),
       phase: isNetwork ? 'network' : 'runtime',
       title: evidence.description || evidence.evidence_type,
       description: evidence.process ? `Process: ${evidence.process}` : undefined,
       confidence: evidence.confidence,
-      status: evidence.source,
+      trustLevel: (evidence as { trust_level?: string }).trust_level,
+      status: (evidence as { trust_level?: string }).trust_level || evidence.source,
+      evidenceIds: [evidence.evidence_id],
     });
   }
 
@@ -175,7 +216,7 @@ function addRuntimeEvents(result: ApkAnalysisResult, events: InvestigationEvent[
     events.push({
       id: nextId(isNetwork ? 'net' : 'rt'),
       phase: isNetwork ? 'network' : 'runtime',
-      title: expResult.summary || expResult.experiment_type.replaceAll('_', ' '),
+      title: `Experiment Executed: ${expResult.summary || expResult.experiment_type.replaceAll('_', ' ')}`,
       experimentId: expResult.experiment_id,
       status: expResult.status,
       evidenceIds: expResult.evidence_ids,
@@ -200,6 +241,7 @@ function addVerificationEvents(investigation: AIInvestigation, events: Investiga
       hypothesisId: verification.hypothesis_id,
       status: verification.verified_status as string,
       confidence: verification.ai_confidence,
+      evidenceStrength: verification.evidence_strength,
       evidenceIds: [
         ...verification.static_evidence_ids,
         ...verification.runtime_evidence_ids,
@@ -213,22 +255,30 @@ function addScoringEvents(result: ApkAnalysisResult, events: InvestigationEvent[
   const risk = result.risk;
   if (!risk) return;
 
-  /* Calculate static-only baseline score (before fraud_delta adjustment) */
-  const fraudDeltaAdjustment = risk.fraud_delta_adjustment ?? 0;
-  const staticScore = Math.max(0, Math.round(risk.overall_score - fraudDeltaAdjustment));
+  const staticScore = typeof risk.static_score === 'number'
+    ? risk.static_score
+    : Math.max(0, Math.round(risk.overall_score - (risk.fraud_delta_adjustment ?? 0)));
+  const runtimeAdjustment = typeof risk.runtime_adjustment === 'number'
+    ? risk.runtime_adjustment
+    : (risk.fraud_delta_adjustment ?? 0);
   const finalScore = risk.overall_score;
+  const hasEscalation = runtimeAdjustment > 0 && staticScore !== finalScore;
+
+  const runtimeRuleIds = (risk.runtime_rules || []).map((r) => r.rule_id || r.title).filter(Boolean);
 
   events.push({
     id: nextId('score'),
     phase: 'scoring',
-    title: 'Risk Assessment Complete',
-    description: staticScore !== finalScore
-      ? `Evidence escalated risk from ${staticScore} to ${finalScore}`
-      : `Final risk score: ${finalScore}`,
+    title: hasEscalation ? 'Deterministic Risk Escalation' : 'Risk Assessment Complete',
+    description: hasEscalation
+      ? `Verified runtime behavior confirmed (+${runtimeAdjustment} pts), escalating risk from ${staticScore} to ${finalScore}`
+      : `Final deterministic fraud risk: ${finalScore}`,
     scoreFrom: staticScore,
     scoreTo: finalScore,
+    runtimeAdjustment,
     severity: risk.severity,
     confidence: risk.confidence,
+    scoringRules: runtimeRuleIds,
   });
 }
 
@@ -236,11 +286,12 @@ function addScoringEvents(result: ApkAnalysisResult, events: InvestigationEvent[
 export function buildTimelineEvents(result: ApkAnalysisResult | null | undefined): InvestigationEvent[] {
   if (!result) return [];
 
-  resetSeq();
+  resetTimelineSeq();
   const events: InvestigationEvent[] = [];
 
   addIngestionEvents(result, events);
   addStaticEvents(result, events);
+  addEngineEvents(result, events);
 
   const investigation = result.ai_investigation;
   if (investigation && investigation.status !== 'disabled') {

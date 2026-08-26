@@ -1,14 +1,17 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  ArrowDown,
+  ArrowRight,
   BrainCircuit,
   CheckCircle2,
   CircleDot,
+  Copy,
+  Cpu,
   Eye,
   FileSearch,
   Globe,
   HelpCircle,
   Package,
+  ShieldAlert,
   ShieldCheck,
   XCircle,
   Zap,
@@ -20,10 +23,11 @@ import { buildTimelineEvents, type InvestigationEvent, type InvestigationPhase }
 /* ---------- phase visual config ---------- */
 interface PhaseConfig {
   icon: React.ComponentType<{ className?: string }>;
-  color: string;        /* tailwind text color */
-  bgColor: string;      /* tailwind bg for node dot */
-  borderColor: string;  /* tailwind border for line accent */
+  color: string;
+  bgColor: string;
+  borderColor: string;
   label: string;
+  badgeLabel?: string;
 }
 
 const PHASE_CONFIG: Record<InvestigationPhase, PhaseConfig> = {
@@ -39,7 +43,14 @@ const PHASE_CONFIG: Record<InvestigationPhase, PhaseConfig> = {
     color: 'text-amber-400',
     bgColor: 'bg-amber-500',
     borderColor: 'border-amber-500/40',
-    label: 'STATIC ANALYSIS',
+    label: 'STATIC EVIDENCE',
+  },
+  engine: {
+    icon: Cpu,
+    color: 'text-cyan-400',
+    bgColor: 'bg-cyan-500',
+    borderColor: 'border-cyan-500/40',
+    label: 'ENGINE FINDINGS',
   },
   ai: {
     icon: BrainCircuit,
@@ -47,6 +58,7 @@ const PHASE_CONFIG: Record<InvestigationPhase, PhaseConfig> = {
     bgColor: 'bg-violet-500',
     borderColor: 'border-violet-500/40',
     label: 'AI HYPOTHESIS',
+    badgeLabel: 'AI PROPOSAL (NON-AUTHORITATIVE)',
   },
   experiment: {
     icon: Zap,
@@ -74,50 +86,99 @@ const PHASE_CONFIG: Record<InvestigationPhase, PhaseConfig> = {
     color: 'text-emerald-400',
     bgColor: 'bg-emerald-500',
     borderColor: 'border-emerald-500/40',
-    label: 'VERIFICATION',
+    label: 'DETERMINISTIC VERIFICATION',
+    badgeLabel: 'DETERMINISTIC PROOF (AUTHORITATIVE)',
   },
   scoring: {
     icon: CircleDot,
     color: 'text-red-400',
     bgColor: 'bg-red-500',
     borderColor: 'border-red-500/40',
-    label: 'SCORING',
+    label: 'RISK ASSESSMENT',
   },
 };
 
-/* ---------- experiment status styling (reused from ApkAnalysisView) ---------- */
+/* ---------- status styling ---------- */
 const STATUS_STYLE: Record<string, string> = {
+  // Honest unrun / failed states
+  NOT_RUN: 'text-slate-400 border-slate-700 bg-slate-900/60',
+  SKIPPED: 'text-slate-400 border-slate-700 bg-slate-900/60',
+  UNSUPPORTED: 'text-amber-400 border-amber-500/40 bg-amber-950/30',
+  UNAVAILABLE: 'text-amber-400 border-amber-500/40 bg-amber-950/30',
+  BLOCKED: 'text-red-400 border-red-500/40 bg-red-950/30',
+  FAILED: 'text-red-400 border-red-500/40 bg-red-950/30 font-bold',
+  TIMED_OUT: 'text-amber-400 border-amber-500/40 bg-amber-950/30',
+  INCONCLUSIVE: 'text-amber-300 border-amber-500/40 bg-amber-950/30 font-medium',
+
+  // Running & completed
   PLANNED: 'text-blue-300 border-blue-500/30 bg-blue-950/20',
-  SKIPPED: 'text-slate-300 border-slate-700 bg-slate-950/40',
-  UNSUPPORTED: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
-  UNAVAILABLE: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
   RUNNING: 'text-violet-300 border-violet-500/30 bg-violet-950/20',
-  COMPLETED: 'text-emerald-300 border-emerald-500/30 bg-emerald-950/20',
-  FAILED: 'text-red-300 border-red-500/30 bg-red-950/20',
-  TIMED_OUT: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
+  COMPLETED: 'text-emerald-300 border-emerald-500/40 bg-emerald-950/20 font-medium',
+
+  // Verification & Trust levels
   PROPOSED: 'text-violet-300 border-violet-500/30 bg-violet-950/20',
-  SUPPORTED: 'text-blue-300 border-blue-500/30 bg-blue-950/20',
-  CONFIRMED: 'text-emerald-300 border-emerald-500/30 bg-emerald-950/20',
-  CONTRADICTED: 'text-red-300 border-red-500/30 bg-red-950/20',
-  INCONCLUSIVE: 'text-amber-300 border-amber-500/30 bg-amber-950/20',
+  SUPPORTED: 'text-blue-300 border-blue-500/40 bg-blue-950/30 font-medium',
+  CONFIRMED: 'text-emerald-300 border-emerald-500/50 bg-emerald-950/40 font-bold shadow-[0_0_10px_rgba(16,185,129,0.15)]',
+  CONTRADICTED: 'text-red-300 border-red-500/40 bg-red-950/30 font-medium',
+
+  // Provenance trust levels
+  PAYLOAD_CORRELATED: 'text-cyan-300 border-cyan-500/50 bg-cyan-950/40 font-bold',
+  INSTRUMENTED: 'text-emerald-300 border-emerald-500/40 bg-emerald-950/30 font-medium',
+  SYSTEM_OBSERVED: 'text-blue-300 border-blue-500/30 bg-blue-950/20',
+  LOG_OBSERVED: 'text-slate-300 border-slate-600 bg-slate-900/50',
+  INFERRED: 'text-violet-300 border-violet-500/30 bg-violet-950/20',
 };
 
-/* ---------- confidence bar ---------- */
-function ConfidenceBar({ confidence, label }: { confidence: number; label?: string }) {
-  const pct = Math.round(confidence * 100);
-  let barColor = 'bg-emerald-500';
-  if (pct >= 75) barColor = 'bg-red-500';
-  else if (pct >= 50) barColor = 'bg-amber-500';
+/* ---------- confidence & strength bar ---------- */
+function MetricBar({ value, label, isAi }: { value: number; label: string; isAi?: boolean }) {
+  const pct = Math.round(value * 100);
+  let barColor = isAi ? 'bg-violet-500' : 'bg-emerald-500';
+  if (pct >= 85) barColor = isAi ? 'bg-violet-400' : 'bg-red-500';
+  else if (pct >= 50) barColor = isAi ? 'bg-violet-500' : 'bg-amber-500';
   else if (pct >= 25) barColor = 'bg-blue-500';
 
   return (
-    <div className="flex items-center gap-2 mt-1.5">
-      {label && <span className="text-[10px] text-slate-500 uppercase font-bold shrink-0">{label}</span>}
-      <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden max-w-[120px]">
+    <div className="flex items-center gap-2 mt-1.5 min-w-0">
+      <span className="text-[10px] text-slate-500 uppercase font-bold shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden max-w-[100px]">
         <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="text-[10px] font-mono font-bold text-slate-300">{pct}%</span>
     </div>
+  );
+}
+
+/* ---------- interactive provenance chip ---------- */
+function ProvenanceChip({ id, type }: { id: string; type?: 'evidence' | 'hypothesis' | 'experiment' | 'rule' }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(id).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  let colorClasses = 'bg-blue-500/10 text-blue-300 border-blue-500/20 hover:bg-blue-500/20';
+  if (type === 'hypothesis' || id.startsWith('H')) {
+    colorClasses = 'bg-violet-500/10 text-violet-300 border-violet-500/20 hover:bg-violet-500/20';
+  } else if (type === 'experiment' || id.startsWith('EXP') || id.startsWith('DYN')) {
+    colorClasses = 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20 hover:bg-cyan-500/20';
+  } else if (type === 'rule' || id.startsWith('RUNTIME-') || id.startsWith('APK-')) {
+    colorClasses = 'bg-red-500/10 text-red-300 border-red-500/20 hover:bg-red-500/20';
+  } else if (id.startsWith('R') || id.startsWith('RT')) {
+    colorClasses = 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20';
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={`Click to copy ID: ${id}`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono transition-colors cursor-pointer ${colorClasses}`}
+    >
+      <span>{id}</span>
+      {copied ? <span className="text-[9px] text-emerald-400">✓</span> : <Copy className="w-2.5 h-2.5 opacity-50" />}
+    </button>
   );
 }
 
@@ -128,13 +189,15 @@ function TimelineNode({ event, isLast }: { event: InvestigationEvent; isLast: bo
 
   const isConfirmed = event.status === 'CONFIRMED';
   const isContradicted = event.status === 'CONTRADICTED';
+  const isInconclusive = event.status === 'INCONCLUSIVE';
+  const isFailed = event.status === 'FAILED' || event.status === 'BLOCKED';
 
   return (
-    <div className="timeline-node relative flex gap-4" data-phase={event.phase}>
+    <div className="timeline-node relative flex gap-3 md:gap-4" data-phase={event.phase}>
       {/* Vertical line + dot */}
-      <div className="flex flex-col items-center shrink-0 w-10">
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${config.borderColor} bg-slate-950 z-10`}>
-          <Icon className={`w-4 h-4 ${config.color}`} />
+      <div className="flex flex-col items-center shrink-0 w-8 md:w-10">
+        <div className={`w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center border-2 ${config.borderColor} bg-slate-950 z-10 shrink-0`}>
+          <Icon className={`w-3.5 h-3.5 md:w-4 md:h-4 ${config.color}`} />
         </div>
         {!isLast && (
           <div className="timeline-connector flex-1 w-px bg-slate-700/60 min-h-[24px]" />
@@ -142,32 +205,47 @@ function TimelineNode({ event, isLast }: { event: InvestigationEvent; isLast: bo
       </div>
 
       {/* Content card */}
-      <div className={`flex-1 pb-5 ${isLast ? '' : ''}`}>
-        {/* Phase label */}
-        <span className={`text-[9px] font-bold uppercase tracking-widest ${config.color} opacity-80`}>
-          {config.label}
-        </span>
+      <div className="flex-1 pb-5 min-w-0">
+        {/* Phase Header */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`text-[9px] md:text-[10px] font-bold uppercase tracking-widest ${config.color} opacity-90`}>
+            {config.label}
+          </span>
+          {event.isAiGenerated && (
+            <span className="px-1.5 py-0.2 rounded bg-violet-950/60 border border-violet-500/30 text-[9px] font-mono text-violet-300">
+              AI PROPOSAL · NON-AUTHORITATIVE
+            </span>
+          )}
+          {event.phase === 'verification' && (
+            <span className="px-1.5 py-0.2 rounded bg-emerald-950/60 border border-emerald-500/30 text-[9px] font-mono text-emerald-300">
+              DETERMINISTIC PROOF · AUTHORITATIVE
+            </span>
+          )}
+        </div>
 
         {/* Title row */}
-        <div className="flex flex-wrap items-start gap-2 mt-0.5">
-          <h4 className="text-sm font-bold text-white leading-tight">{event.title}</h4>
+        <div className="flex flex-wrap items-center gap-2 mt-0.5">
+          <h4 className="text-xs md:text-sm font-bold text-white leading-tight break-words">{event.title}</h4>
           {event.status && (
-            <span className={`px-1.5 py-0.5 rounded border text-[9px] font-mono font-bold uppercase ${STATUS_STYLE[event.status] ?? 'text-slate-300 border-slate-700 bg-slate-950/40'}`}>
+            <span className={`px-1.5 py-0.5 rounded border text-[9px] font-mono uppercase shrink-0 ${STATUS_STYLE[event.status] ?? 'text-slate-300 border-slate-700 bg-slate-950/40'}`}>
               {event.status}
             </span>
           )}
           {event.phase === 'verification' && (
-            isConfirmed
-              ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              : isContradicted
-                ? <XCircle className="w-4 h-4 text-red-400 shrink-0" />
-                : <HelpCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            isConfirmed ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : isContradicted ? (
+              <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+            ) : isInconclusive ? (
+              <HelpCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            ) : null
           )}
+          {isFailed && <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />}
         </div>
 
         {/* Description */}
         {event.description && (
-          <p className="text-xs text-slate-400 leading-relaxed mt-1">{event.description}</p>
+          <p className="text-xs text-slate-300 leading-relaxed mt-1 break-words">{event.description}</p>
         )}
 
         {/* Details list */}
@@ -181,52 +259,66 @@ function TimelineNode({ event, isLast }: { event: InvestigationEvent; isLast: bo
           </div>
         )}
 
-        {/* Evidence IDs */}
-        {event.evidenceIds && event.evidenceIds.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {event.evidenceIds.map((eid) => (
-              <span
-                key={eid}
-                className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[10px] font-mono cursor-pointer hover:bg-blue-500/20 transition-colors"
-                title={`Evidence: ${eid}`}
-              >
-                {eid}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Hypothesis / experiment IDs */}
-        <div className="flex flex-wrap gap-2 mt-1">
+        {/* Provenance Links */}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {event.hypothesisId && (
-            <span className="text-[10px] font-mono text-violet-400 opacity-70">{event.hypothesisId}</span>
+            <ProvenanceChip id={event.hypothesisId} type="hypothesis" />
           )}
           {event.experimentId && (
-            <span className="text-[10px] font-mono text-cyan-400 opacity-70">{event.experimentId}</span>
+            <ProvenanceChip id={event.experimentId} type="experiment" />
+          )}
+          {event.evidenceIds && event.evidenceIds.map((eid) => (
+            <ProvenanceChip key={eid} id={eid} type="evidence" />
+          ))}
+          {event.scoringRules && event.scoringRules.map((rid) => (
+            <ProvenanceChip key={rid} id={rid} type="rule" />
+          ))}
+        </div>
+
+        {/* AI Confidence vs Deterministic Evidence Strength */}
+        <div className="flex flex-wrap gap-4 mt-1">
+          {event.confidence != null && event.phase !== 'scoring' && (
+            <MetricBar value={event.confidence} label={event.isAiGenerated ? "ai confidence" : "confidence"} isAi={event.isAiGenerated} />
+          )}
+          {event.evidenceStrength != null && (
+            <MetricBar value={event.evidenceStrength} label="deterministic strength" isAi={false} />
           )}
         </div>
 
-        {/* Confidence */}
-        {event.confidence != null && event.phase !== 'scoring' && (
-          <ConfidenceBar confidence={event.confidence} label="confidence" />
-        )}
-
-        {/* Score transition */}
-        {event.phase === 'scoring' && event.scoreFrom != null && event.scoreTo != null && (
-          <div className="mt-3 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-3">
-              <ScoreGauge score={event.scoreFrom} size={80} strokeWidth={7} label="STATIC" />
-              <div className="flex flex-col items-center gap-0.5">
-                <ArrowDown className="w-5 h-5 text-slate-500" />
-                <span className="text-[9px] font-mono text-slate-600">delta</span>
-              </div>
-              <ScoreGauge score={event.scoreTo} size={80} strokeWidth={7} label="FINAL" />
-            </div>
-            {event.severity && (
-              <span className={`soc-badge ${event.severity === 'CRITICAL' ? 'soc-badge-critical' : event.severity === 'HIGH' ? 'soc-badge-high' : event.severity === 'MEDIUM' ? 'soc-badge-medium' : 'soc-badge-low'} text-[10px]`}>
-                <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                {event.severity}
+        {/* Deterministic Scoring Breakdown Card */}
+        {event.phase === 'scoring' && event.scoreTo != null && (
+          <div className="mt-3 p-3 rounded-lg border border-slate-800 bg-slate-900/60 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-[11px] font-mono text-slate-400 font-bold uppercase tracking-wider">
+                Model: apk-risk-2026.5
               </span>
+              {event.severity && (
+                <span className={`soc-badge ${event.severity === 'CRITICAL' ? 'soc-badge-critical' : event.severity === 'HIGH' ? 'soc-badge-high' : event.severity === 'MEDIUM' ? 'soc-badge-medium' : 'soc-badge-low'} text-[10px]`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                  {event.severity}
+                </span>
+              )}
+            </div>
+
+            {event.runtimeAdjustment != null && event.runtimeAdjustment > 0 && event.scoreFrom != null && event.scoreFrom !== event.scoreTo ? (
+              <div className="flex items-center gap-3 md:gap-4 flex-wrap">
+                <ScoreGauge score={event.scoreFrom} size={76} strokeWidth={6} label="STATIC" />
+                <div className="flex flex-col items-center justify-center px-2 py-1 rounded bg-red-950/40 border border-red-500/30">
+                  <div className="flex items-center gap-1 text-red-400 font-mono font-bold text-xs">
+                    <span>+{event.runtimeAdjustment}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-[8px] font-mono text-red-300 uppercase tracking-tight">Verified Egress</span>
+                </div>
+                <ScoreGauge score={event.scoreTo} size={76} strokeWidth={6} label="FINAL FRAUD" />
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <ScoreGauge score={event.scoreTo} size={76} strokeWidth={6} label="FINAL FRAUD" />
+                <div className="text-xs text-slate-400 font-mono">
+                  Static risk confirmed without runtime escalation (adjustment: 0 pts)
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -241,8 +333,8 @@ function TimelineSkeleton() {
     <div className="space-y-4 animate-pulse">
       {[1, 2, 3].map((i) => (
         <div key={i} className="flex gap-4">
-          <div className="flex flex-col items-center shrink-0 w-10">
-            <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-slate-700" />
+          <div className="flex flex-col items-center shrink-0 w-8 md:w-10">
+            <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-slate-800 border-2 border-slate-700" />
             {i < 3 && <div className="flex-1 w-px bg-slate-800 min-h-[24px]" />}
           </div>
           <div className="flex-1 pb-5 space-y-2">
@@ -263,7 +355,7 @@ function TimelineEmpty() {
       <BrainCircuit className="w-10 h-10 text-slate-600 mb-3" />
       <p className="text-sm font-bold text-slate-400">AI-driven investigation was not enabled</p>
       <p className="text-xs text-slate-500 mt-1 max-w-sm">
-        Enable the LLM provider and dynamic analysis capabilities to see the full investigation timeline
+        Enable the LLM provider and dynamic sandbox capabilities to see the end-to-end investigation timeline
       </p>
     </div>
   );
@@ -278,14 +370,13 @@ interface InvestigationTimelineProps {
 export function InvestigationTimeline({ result, loading }: InvestigationTimelineProps) {
   const events = useMemo(() => buildTimelineEvents(result), [result]);
 
-  /* Only show if there's meaningful investigation data beyond basic ingestion+scoring */
   const hasInvestigation = result?.ai_investigation && result.ai_investigation.status !== 'disabled';
   const hasRuntimeEvidence = (result?.runtime_evidence ?? []).length > 0;
   const hasExperimentResults = (result?.experiment_results ?? []).length > 0;
   const showTimeline = events.length > 2 || hasInvestigation || hasRuntimeEvidence || hasExperimentResults;
 
   return (
-    <section className="soc-card p-6 space-y-4">
+    <section className="soc-card p-4 md:p-6 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div className="flex items-center gap-2">
           <BrainCircuit className="w-5 h-5 text-violet-400" />
@@ -303,7 +394,7 @@ export function InvestigationTimeline({ result, loading }: InvestigationTimeline
       ) : !showTimeline ? (
         <TimelineEmpty />
       ) : (
-        <div className="timeline-container">
+        <div className="timeline-container space-y-1">
           {events.map((event, index) => (
             <TimelineNode key={event.id} event={event} isLast={index === events.length - 1} />
           ))}
