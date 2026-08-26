@@ -468,6 +468,24 @@ export interface BrandImpersonationResult {
   reasons: string[];
 }
 
+export type BankingImpactStatus = 'CONFIRMED' | 'SUPPORTED' | 'POSSIBLE' | 'NOT_OBSERVED';
+
+export interface BankingImpactItem {
+  id: string;
+  category: string;
+  title: string;
+  description: string;
+  status: BankingImpactStatus;
+  deterministic_basis: string;
+  evidence_ids: string[];
+  signals: string[];
+}
+
+export interface BankingImpact {
+  items: BankingImpactItem[];
+  summary: Record<string, number>;
+}
+
 export interface ApkAnalysisResult {
   schema_version: string;
   analysis_id: string;
@@ -506,6 +524,7 @@ export interface ApkAnalysisResult {
   campaign?: Campaign;
   brand_impersonation?: BrandImpersonationResult;
   firebase_infrastructure?: FirebaseInfrastructure;
+  banking_impact?: BankingImpact;
   extraction: ApkExtractionDetails;
   ai_investigation?: AIInvestigation;
   narrative_metadata: { llm_controls_score: false; source: string; warning: string | null };

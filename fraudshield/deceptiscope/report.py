@@ -41,6 +41,9 @@ def _severity_color(severity: str) -> colors.Color:
     }.get(severity.upper(), SLATE)
 
 
+from fraudshield.deceptiscope.impact import derive_banking_impact
+
+
 def build_analysis_pdf(analysis: dict[str, Any]) -> bytes:
     result = analysis.get("result") or {}
     extraction = result.get("extraction", {})
@@ -55,6 +58,7 @@ def build_analysis_pdf(analysis: dict[str, Any]) -> bytes:
     related_samples = result.get("related_samples", [])
     brand_impersonation = result.get("brand_impersonation", {})
     firebase_infra = result.get("firebase_infrastructure", {})
+    banking_impact = result.get("banking_impact") or derive_banking_impact(result)
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle("RptTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=18, textColor=NAVY, alignment=TA_LEFT)
@@ -135,7 +139,16 @@ def build_analysis_pdf(analysis: dict[str, Any]) -> bytes:
     story.append(Spacer(1, 4))
 
     # Executive Summary Box
-    primary_threat = "SMS OTP Theft, Credential Harvesting & Dynamic Code Execution" if severity in ("CRITICAL", "HIGH") else "Low Risk / No Active Fraud Proof"
+    impact_items = banking_impact.get("items", [])
+    confirmed_titles = [it.get("title", "") for it in impact_items if it.get("status") == "CONFIRMED"]
+    supported_titles = [it.get("title", "") for it in impact_items if it.get("status") == "SUPPORTED"]
+    if confirmed_titles:
+        primary_threat = f"Confirmed: {', '.join(confirmed_titles[:2])}"
+    elif supported_titles:
+        primary_threat = f"Supported: {', '.join(supported_titles[:2])}"
+    else:
+        primary_threat = "Low Risk / No High-Impact Fraud Proven"
+
     camp_str = f"Campaign {campaign.get('campaign_id')}" if campaign else "Single Isolated Sample"
     exec_meta = [
         ["Investigation ID", _text(analysis.get("id"))],
@@ -157,15 +170,18 @@ def build_analysis_pdf(analysis: dict[str, Any]) -> bytes:
     # 2. BANKING IMPACT & INVESTIGATION SUMMARY
     # =========================================================================
     story.append(Paragraph("1. Banking Fraud Impact Matrix", sec_heading))
-    impact_rows = [
-        ["Banking Capability", "Status", "Deterministic Evidence Basis"],
-        ["SMS OTP Interception", "CONFIRMED" if runtime_adj > 0 else "SUPPORTED", "Synthetic OTP marker injected and intercepted via Android SMS API"],
-        ["Credential Harvesting", "CONFIRMED" if assessment.get("known_malware") else "SUPPORTED", "Fake NetBanking login layout strings and outbound exfiltration"],
-        ["Account Takeover (ATO)", "CRITICAL RISK" if severity == "CRITICAL" else "POSSIBLE", "Direct combination of harvested MPIN and intercepted SMS OTP"],
-        ["Automated Transfers (ATS)", "SUPPORTED" if extraction.get("components", {}).get("accessibility_service") else "NOT OBSERVED", "Accessibility Service automation hooks present"],
-        ["Secondary Payload Drop", "CONFIRMED" if recovered_payloads else "NOT OBSERVED", f"{len(recovered_payloads)} recovered dynamic bytecode artifact(s)"],
-    ]
-    impact_table = Table([[Paragraph(f"<b>{_text(c)}</b>" if i == 0 else _text(c), small) for c in row] for i, row in enumerate(impact_rows)], colWidths=[42 * mm, 32 * mm, 108 * mm])
+    impact_rows = [["Banking Capability", "Status", "Deterministic Evidence Basis"]]
+    for item in impact_items:
+        basis_text = item.get("deterministic_basis", "")
+        ev_ids = item.get("evidence_ids", [])
+        if ev_ids:
+            basis_text = f"{basis_text} [IDs: {', '.join(ev_ids[:3])}]"
+        impact_rows.append([
+            item.get("title", item.get("category", "")),
+            item.get("status", "NOT_OBSERVED"),
+            basis_text,
+        ])
+    impact_table = Table([[Paragraph(f"<b>{_text(c)}</b>" if i == 0 else _text(c), small) for c in row] for i, row in enumerate(impact_rows)], colWidths=[44 * mm, 30 * mm, 108 * mm])
     impact_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), NAVY),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),

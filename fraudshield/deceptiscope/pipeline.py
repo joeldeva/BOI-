@@ -13,6 +13,7 @@ from fraudshield.deceptiscope.engines import MultiEngineAnalyzer, malware_assess
 from fraudshield.deceptiscope.extractor import StaticAPKExtractor
 from fraudshield.deceptiscope.fraud_delta import FraudDeltaCalculator
 from fraudshield.deceptiscope.frauddna import CampaignCorrelator, FraudDNAExtractor
+from fraudshield.deceptiscope.impact import derive_banking_impact
 from fraudshield.deceptiscope.impersonation import (
     BrandImpersonationAnalyzer,
     FirebaseExtractor,
@@ -333,6 +334,8 @@ class APKAnalysisPipeline:
 
             final_assessment = malware_assessment(extraction, final_risk, engine_analysis)
             findings["malware_assessment"] = final_assessment
+
+            findings["banking_impact"] = derive_banking_impact(findings)
 
             final_candidates = self._indicator_candidates(extraction, final_risk)
             findings["indicator_candidates"] = final_candidates
