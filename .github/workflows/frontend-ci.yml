@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 concurrency:
   group: frontend-ci-${{ github.ref }}
@@ -28,8 +30,12 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install locked dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Frontend dependency security audit (npm audit)
+        run: npm audit --audit-level=high
       - name: Contract tests, lint, and production build
         run: npm run check
+      - name: Generate Frontend CycloneDX SBOM
+        run: npx -y @cyclonedx/cyclonedx-npm --output-file dist/fraudshield-frontend-sbom.cdx.json
       - name: Upload production bundle
         uses: actions/upload-artifact@v4
         with:
@@ -37,6 +43,18 @@ jobs:
           path: frontend/dist
           if-no-files-found: error
           retention-days: 30
+      - name: Upload Frontend SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: fraudshield-frontend-sbom
+          path: frontend/dist/fraudshield-frontend-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Attest Frontend Artifact Provenance
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "frontend/dist/*"
 
   container:
     runs-on: ubuntu-latest
@@ -49,3 +67,11 @@ jobs:
           --build-arg VITE_DEMO_ENABLED=false
           --tag fraudshield-frontend:${{ github.sha }}
           frontend
+      - name: Scan frontend container image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: fraudshield-frontend:${{ github.sha }}
+          format: "table"
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"

@@ -1,0 +1,43 @@
+name: Security & Supply Chain CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: security-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret Scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  sast-analysis:
+    name: Static Application Security Testing (Semgrep)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run Semgrep SAST scan
+        run: |
+          semgrep scan --config "p/python" --config "p/typescript" --config "p/owasp-top-ten" --error --exclude "tests" --exclude "frontend/tests"

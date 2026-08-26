@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  id-token: write
+  attestations: write
 
 concurrency:
   group: backend-ci-${{ github.ref }}
@@ -30,12 +32,22 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -e ".[dev,analysis,production]"
+          python -m pip install pip-audit cyclonedx-bom
       - name: Lint with ruff
         run: python -m ruff check fraudshield tests
       - name: Run automated test suite
         run: python -m pytest tests -ra
+      - name: Python SCA dependency audit (pip-audit)
+        run: |
+          pip-audit --desc on --strict --format json -o backend-audit.json || {
+            echo "::warning::Vulnerabilities detected by pip-audit"
+            pip-audit --desc on --format columns
+          }
       - name: Build wheel and sdist package
         run: python -m build
+      - name: Generate Backend CycloneDX SBOM
+        run: |
+          cyclonedx-py environment --outfile dist/fraudshield-backend-sbom.cdx.json
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -43,6 +55,18 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 30
+      - name: Upload Backend SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: fraudshield-backend-sbom
+          path: dist/fraudshield-backend-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Attest Backend Artifact Provenance
+        continue-on-error: true
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*"
 
   container-and-chart:
     runs-on: ubuntu-latest
@@ -56,6 +80,14 @@ jobs:
         run: docker compose config --quiet
       - name: Build backend container
         run: docker build --tag fraudshield:${{ github.sha }} .
+      - name: Scan backend container image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: fraudshield:${{ github.sha }}
+          format: "table"
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
       - name: Lint Helm chart (default)
         run: helm lint deploy/helm/fraudshield
       - name: Lint Helm chart (production example)

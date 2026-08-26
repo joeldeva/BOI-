@@ -1,0 +1,22 @@
+# Gitleaks configuration for FraudShield DeceptiScope
+title = "FraudShield Gitleaks Configuration"
+
+[extend]
+# Use default gitleaks rules
+
+[allowlist]
+description = "Allowlisted synthetic test artifacts, mock test hashes, and sample identifiers"
+paths = [
+  '''tests/.*''',
+  '''deploy/helm/.*/values-production\.example\.yaml''',
+  '''frontend/tests/.*''',
+  '''frontend/src/tests/.*''',
+  '''\.venv/.*''',
+]
+regexes = [
+  '''(?i)aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899''',
+  '''(?i)deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef''',
+  '''(?i)fake-api-key''',
+  '''(?i)mock-token''',
+  '''(?i)test-api-key''',
+]
