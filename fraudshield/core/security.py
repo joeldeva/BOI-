@@ -203,8 +203,6 @@ def permission_for_request(request: Request) -> str:
     path = request.url.path
     if path.startswith("/api/v1/audit-events"):
         return "audit:read"
-    if "/demo/" in path or path in {"/seed-demo"}:
-        return "demo:run"
     if method in {"GET", "HEAD", "OPTIONS"}:
         return "read"
     if path.startswith("/api/v1/jobs"):
@@ -241,8 +239,6 @@ async def require_api_key(
         x_api_key=x_api_key,
     )
     permission = permission_for_request(request)
-    if permission == "demo:run" and not request.app.state.settings.demo_enabled:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demo routes are disabled")
     if not principal.permits(permission):
         request.state.auth_failure = f"missing_permission:{permission}"
         raise HTTPException(

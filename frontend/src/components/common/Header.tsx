@@ -1,25 +1,19 @@
 import React from 'react';
-import { Shield, Activity, Settings, Sparkles, Database, Smartphone } from 'lucide-react';
+import { Shield, Activity, Settings, Database, Smartphone } from 'lucide-react';
 import type { HealthResponse } from '../../types/api';
 
 interface HeaderProps {
   health: HealthResponse | null;
   activeTab: string;
   onSelectTab: (tab: string) => void;
-  onLaunchHeroDemo: () => void;
-  isDemoLoading: boolean;
   onOpenSettings: () => void;
-  demoEnabled: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   health,
   activeTab,
   onSelectTab,
-  onLaunchHeroDemo,
-  isDemoLoading,
   onOpenSettings,
-  demoEnabled,
 }) => {
   const isHealthy = health?.status === 'healthy';
 
@@ -77,18 +71,6 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Actions & Live Health Indicator */}
           <div className="flex items-center gap-3">
-            {/* Run Hero Demo Button */}
-            {demoEnabled && (
-              <button
-                onClick={onLaunchHeroDemo}
-                disabled={isDemoLoading}
-                className="hidden lg:flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-md shadow-amber-500/20 transition-all disabled:opacity-50"
-              >
-                <Sparkles className="w-4 h-4" />
-                {isDemoLoading ? 'Seeding Demo...' : 'Run Hero Demo'}
-              </button>
-            )}
-
             {/* Health Status Indicator */}
             <div
               className={`hidden sm:flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold border ${

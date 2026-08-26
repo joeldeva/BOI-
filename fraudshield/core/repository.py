@@ -42,7 +42,29 @@ def _analysis_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _analysis_summary_from_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    return dict(row)
+    item = dict(row)
+    raw_result = item.pop("result_json", None)
+    result = loads(raw_result, {}) if raw_result else {}
+    item["analysis_id"] = item["id"]
+
+    extraction = result.get("extraction", {}) if isinstance(result, dict) else {}
+    app = extraction.get("app", {}) if isinstance(extraction, dict) else {}
+    risk = result.get("risk", {}) if isinstance(result, dict) else {}
+    coverage = extraction.get("coverage", {}) if isinstance(extraction, dict) else {}
+
+    item["package_name"] = app.get("package_name")
+    item["app_name"] = app.get("app_label") or app.get("app_name")
+    item["static_score"] = risk.get("static_score")
+    item["runtime_adjustment"] = risk.get("runtime_adjustment", 0)
+
+    if coverage.get("dynamic") is True:
+        item["dynamic_status"] = "completed"
+    elif coverage.get("dynamic") is False:
+        item["dynamic_status"] = "unavailable"
+    else:
+        item["dynamic_status"] = None
+
+    return item
 
 
 class AnalysisRepository:
@@ -56,7 +78,7 @@ class AnalysisRepository:
         sha256: str,
         size_bytes: int,
         category: str,
-        data_origin: str,
+        data_origin: str = "uploaded",
     ) -> dict[str, Any]:
         analysis_id = new_id("apk")
         now = utc_now()
@@ -157,7 +179,7 @@ class AnalysisRepository:
             rows = connection.execute(
                 f"""
                 SELECT id,status,data_origin,file_name,sha256,size_bytes,category,created_at,started_at,
-                       completed_at,overall_score,severity,confidence,analysis_quality,error_code,error_message
+                       completed_at,overall_score,severity,confidence,analysis_quality,result_json,error_code,error_message
                 FROM analyses{where} ORDER BY created_at DESC LIMIT ? OFFSET ?
                 """,
                 (*values, limit, offset),
@@ -187,13 +209,39 @@ class AnalysisRepository:
             raise NotFoundError("completed analysis", "latest")
         return _analysis_from_row(row)
 
-    def delete_synthetic_demo_records(self) -> int:
-        """Safely removes only explicit synthetic demonstration records without touching uploaded data."""
+    def cleanup_synthetic_records(self) -> dict[str, int]:
+        """Safely cleans up any legacy synthetic records and orphaned indicators without touching uploaded analyses."""
         with self.db.transaction() as connection:
-            cursor = connection.execute(
-                "DELETE FROM analyses WHERE data_origin = 'synthetic'"
-            )
-            return int(cursor.rowcount)
+            rows = connection.execute("SELECT id FROM analyses WHERE data_origin = 'synthetic'").fetchall()
+            synthetic_ids = [row["id"] for row in rows]
+
+            deleted_sightings = 0
+            deleted_indicators = 0
+            deleted_analyses = 0
+
+            if synthetic_ids:
+                placeholders = ",".join("?" for _ in synthetic_ids)
+                cursor = connection.execute(
+                    f"DELETE FROM indicator_sightings WHERE source_analysis_id IN ({placeholders})",
+                    synthetic_ids,
+                )
+                deleted_sightings = int(cursor.rowcount)
+
+                cursor = connection.execute(
+                    "DELETE FROM indicators WHERE id NOT IN (SELECT DISTINCT indicator_id FROM indicator_sightings)"
+                )
+                deleted_indicators = int(cursor.rowcount)
+
+                cursor = connection.execute(
+                    "DELETE FROM analyses WHERE data_origin = 'synthetic'"
+                )
+                deleted_analyses = int(cursor.rowcount)
+
+            return {
+                "deleted_sightings": deleted_sightings,
+                "deleted_indicators": deleted_indicators,
+                "deleted_analyses": deleted_analyses,
+            }
 
 
 def normalize_indicator(indicator_type: str, value: str) -> str:

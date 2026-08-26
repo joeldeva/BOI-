@@ -5,7 +5,6 @@ import type {
   ApkAnalysisRecord,
   ThreatIndicatorRecord,
   NewIndicatorPayload,
-  DemoSeedResponse,
   ApiErrorResponse,
   JobRecord,
   SubmitApkJobParams,
@@ -114,12 +113,6 @@ export const apiService = {
   },
   createIndicator(payload: NewIndicatorPayload): Promise<ThreatIndicatorRecord> {
     return this.fetch('/api/v1/indicators', { method: 'POST', body: JSON.stringify(payload) });
-  },
-  seedDemo(category = 'banking'): Promise<DemoSeedResponse> {
-    return this.fetch('/api/v1/demo/seed', {
-      method: 'POST',
-      body: JSON.stringify({ category }),
-    });
   },
 
   submitApkJob(params: SubmitApkJobParams): Promise<JobRecord> {

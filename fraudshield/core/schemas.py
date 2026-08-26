@@ -44,10 +44,6 @@ class IndicatorCreate(StrictModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class DemoSeedRequest(StrictModel):
-    category: str = Field(default="banking", pattern=r"^(banking|finance|utility|other)$")
-
-
 class MethodInterpretationRequest(StrictModel):
     methods: list[dict[str, Any]] = Field(min_length=1, max_length=20)
 

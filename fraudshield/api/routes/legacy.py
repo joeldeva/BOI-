@@ -67,18 +67,6 @@ async def analyze_apk_legacy(
     }
 
 
-@router.post("/seed-demo", deprecated=True)
-def seed_demo_legacy(services: Annotated[ServiceContainer, Depends(container)]) -> dict:
-    apk = services.apk_pipeline.analyze_demo("banking")
-    return {
-        "status": "demo_seeded",
-        "data_origin": "synthetic",
-        "apk_analysis_id": apk["id"],
-        "emitted_indicators_count": len(apk["result"]["emitted_indicators"]),
-        "malware_assessment": apk["result"]["malware_assessment"],
-    }
-
-
 @router.get("/report.pdf", deprecated=True)
 def latest_report_legacy(services: Annotated[ServiceContainer, Depends(container)]) -> Response:
     return _pdf_response(services.analyses.latest_completed())

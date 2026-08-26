@@ -114,15 +114,3 @@ def review_methods(request: MethodInterpretationRequest) -> dict:
         "items": interpret_methods_locally(request.methods),
         "notice": "This endpoint reviews only the supplied snippets and does not claim full decompilation.",
     }
-
-
-@router.post(
-    "/demo/apk-analysis",
-    status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_api_key)],
-)
-def demo_apk_analysis(
-    services: Annotated[ServiceContainer, Depends(container)],
-    category: Annotated[str, Query()] = "banking",
-) -> dict:
-    return services.apk_pipeline.analyze_demo(_category(category))

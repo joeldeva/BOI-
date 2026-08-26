@@ -17,7 +17,6 @@ The UI must never convert `LOW_RISK_OBSERVED`, not-found reputation, zero detect
 
 ```dotenv
 VITE_API_BASE_URL=
-VITE_DEMO_ENABLED=true
 VITE_MAX_APK_MB=75
 ```
 

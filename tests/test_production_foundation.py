@@ -34,7 +34,6 @@ def test_complete_production_configuration_is_accepted(tmp_path: Path) -> None:
         trusted_hosts=("fraudshield.bank.example",),
         cors_origins=("https://fraudshield.bank.example",),
         docs_enabled=False,
-        demo_enabled=False,
         legacy_api_enabled=False,
         inline_analysis_enabled=False,
         audit_hmac_key="a" * 32,

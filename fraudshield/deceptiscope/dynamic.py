@@ -18,7 +18,6 @@ from fraudshield.deceptiscope.runtime.runtime_models import EvidenceTrustLevel
 from fraudshield.deceptiscope.runtime.runtime_models import RuntimeObserverStatus
 
 
-SYNTHETIC_OTP_MARKER = "BOI-TEST-749231"
 DESTINATION_RE = re.compile(
     r"\b(?:https?://[^\s\"'<>]+|(?:\d{1,3}\.){3}\d{1,3}|(?:[a-z0-9-]+\.)+[a-z]{2,24})\b",
     re.IGNORECASE,
@@ -138,7 +137,7 @@ class DynamicLiteAnalyzer:
             "frida_installed": frida_st.get("frida_installed", False),
             "emulator_serial_configured": bool(serial),
             "safe_target_shape": serial.startswith("emulator-") if serial else False,
-            "synthetic_markers": {"otp": SYNTHETIC_OTP_MARKER},
+            "synthetic_markers": {"otp": "dynamic-per-run"},
             "network_policy": {
                 "mode": self.settings.dynamic_network_policy,
                 "llm_supplied_targets": False,
@@ -156,7 +155,10 @@ class DynamicLiteAnalyzer:
     ) -> dict[str, Any]:
         self._preflight(package_name)
         started_at = time.monotonic()
-        marker_str = getattr(active_marker, "value", str(active_marker or SYNTHETIC_OTP_MARKER))
+        if active_marker is None:
+            from fraudshield.deceptiscope.lineage.markers import SyntheticMarkerManager
+            active_marker = SyntheticMarkerManager().create_otp_marker()
+        marker_str = getattr(active_marker, "value", str(active_marker))
         builder = _RuntimeEvidenceBuilder(package_name, started_at)
         observations: dict[str, Any] = {
             "schema_version": "1.0",
@@ -317,7 +319,9 @@ class DynamicLiteAnalyzer:
         new_ids = [item.evidence_id for item in builder.items[before_count:]]
         metadata: dict[str, Any] = {}
         if experiment_type == ExperimentType.SYNTHETIC_SMS:
-            metadata["synthetic_otp_marker"] = state.get("active_marker", SYNTHETIC_OTP_MARKER)
+            active_m = state.get("active_marker")
+            if active_m:
+                metadata["synthetic_otp_marker"] = getattr(active_m, "value", str(active_m))
         if instrumentation:
             metadata["instrumentation"] = instrumentation
 
@@ -483,7 +487,14 @@ class DynamicLiteAnalyzer:
         state: dict[str, Any],
         builder: _RuntimeEvidenceBuilder,
     ) -> tuple[ExperimentStatus, str, str | None]:
-        marker = str(state.get("active_marker") or SYNTHETIC_OTP_MARKER)
+        marker_val = state.get("active_marker")
+        if not marker_val:
+            return (
+                ExperimentStatus.UNAVAILABLE,
+                "Active synthetic marker not supplied for experiment",
+                "Active synthetic marker is required for SYNTHETIC_SMS experiment",
+            )
+        marker = getattr(marker_val, "value", str(marker_val))
         self._run("emu", "sms", "send", "+15551230000", marker, timeout=20)
         builder.add(
             "synthetic_sms_delivered",
@@ -710,7 +721,7 @@ class DynamicLiteAnalyzer:
                     },
                 )
 
-    def _marker_seen_in_app_logcat(self, logcat: str, package_name: str, marker: str = SYNTHETIC_OTP_MARKER) -> bool:
+    def _marker_seen_in_app_logcat(self, logcat: str, package_name: str, marker: str) -> bool:
         return any(marker in line and package_name in line for line in logcat.splitlines())
 
     @staticmethod

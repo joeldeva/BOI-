@@ -513,19 +513,25 @@ export interface ApkAnalysisResult {
 
 export interface ApkAnalysisRecord {
   id: string;
+  analysis_id?: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
   data_origin: DataOrigin;
   file_name: string;
+  package_name?: string | null;
+  app_name?: string | null;
   sha256: string;
   size_bytes: number;
   category: string;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+  static_score?: number | null;
+  runtime_adjustment?: number | null;
   overall_score: number | null;
   severity: SeverityLevel | null;
   confidence: number | null;
   analysis_quality: AnalysisQuality | null;
+  dynamic_status?: string | null;
   narrative?: string | null;
   error_code: string | null;
   error_message: string | null;
@@ -539,16 +545,6 @@ export interface NewIndicatorPayload {
   confidence: number;
   description?: string;
   metadata?: JsonObject;
-}
-
-export interface DemoSeedResponse {
-  status: 'demo_seeded';
-  data_origin: 'synthetic';
-  apk_analysis_id: string;
-  apk_risk: { score: number; severity: SeverityLevel };
-  malware_assessment: MalwareAssessment;
-  engine_summary: EngineAnalysis['summary'];
-  notice: string;
 }
 
 export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';

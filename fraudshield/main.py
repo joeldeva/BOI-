@@ -14,7 +14,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from fraudshield.api.routes import analyses, audit, demo, indicators, jobs, legacy, system
+from fraudshield.api.routes import analyses, audit, indicators, jobs, legacy, system
 from fraudshield.core.config import Settings
 from fraudshield.core.errors import FraudShieldError
 from fraudshield.core.logging import configure_logging
@@ -54,7 +54,6 @@ def _audit_resource(path: str) -> tuple[str, str | None]:
         "audit-events": "audit_event",
         "jobs": "job",
         "indicators": "indicator",
-        "demo": "demo",
     }
     resource_type = aliases.get(segments[0], segments[0].replace("-", "_"))
     resource_id = segments[1] if len(segments) > 1 and segments[1] not in {
@@ -69,7 +68,6 @@ def _audit_resource(path: str) -> tuple[str, str | None]:
 def _should_audit(path: str) -> bool:
     return path.startswith("/api/") or path in {
         "/analyze-apk",
-        "/seed-demo",
         "/report.pdf",
     } or path.startswith("/report/")
 
@@ -308,7 +306,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit.router)
     app.include_router(jobs.router)
     app.include_router(indicators.router)
-    app.include_router(demo.router)
     app.include_router(legacy.router)
     return app
 

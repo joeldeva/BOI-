@@ -100,7 +100,6 @@ class Settings:
     forwarded_allow_ips: str = "127.0.0.1"
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
     docs_enabled: bool = True
-    demo_enabled: bool = True
     legacy_api_enabled: bool = True
     inline_analysis_enabled: bool = True
     audit_hmac_key: str = ""
@@ -245,9 +244,6 @@ class Settings:
             ),
             docs_enabled=_bool(
                 source.get("FRAUDSHIELD_DOCS_ENABLED"), default=environment != "production"
-            ),
-            demo_enabled=_bool(
-                source.get("FRAUDSHIELD_DEMO_ENABLED"), default=environment != "production"
             ),
             legacy_api_enabled=_bool(
                 source.get("FRAUDSHIELD_LEGACY_API_ENABLED"), default=environment != "production"
@@ -447,8 +443,6 @@ class Settings:
             raise RuntimeError("Production CORS origins must use HTTPS")
         if self.environment == "production" and self.docs_enabled:
             raise RuntimeError("FRAUDSHIELD_DOCS_ENABLED must be false in production")
-        if self.environment == "production" and self.demo_enabled:
-            raise RuntimeError("FRAUDSHIELD_DEMO_ENABLED must be false in production")
         if self.environment == "production" and self.legacy_api_enabled:
             raise RuntimeError("FRAUDSHIELD_LEGACY_API_ENABLED must be false in production")
         if self.environment == "production" and self.inline_analysis_enabled:

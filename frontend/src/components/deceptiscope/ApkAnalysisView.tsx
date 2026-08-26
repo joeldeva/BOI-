@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { ScoreGauge } from '../common/ScoreGauge';
 import { SeverityBadge } from '../common/SeverityBadge';
-import { SyntheticBadge } from '../common/SyntheticBadge';
 import { BankImpersonationCard } from './BankImpersonationCard';
 import { BankingImpactCard } from './BankingImpactCard';
 import { FraudDNACampaignCard } from './FraudDNACampaignCard';
@@ -115,7 +114,6 @@ export function ApkAnalysisView({ analysis, onDownloadPdf }: ApkAnalysisViewProp
             <div className="flex items-center gap-3 flex-wrap">
               <h2 className="text-xl font-display font-extrabold text-white truncate">{analysis.file_name}</h2>
               <SeverityBadge severity={analysis.severity ?? risk.severity} size="md" />
-              {analysis.data_origin === 'synthetic' && <SyntheticBadge />}
             </div>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-mono text-slate-400">
               <p>Package: <span className="text-slate-200">{result.extraction.app.package_name}</span></p>

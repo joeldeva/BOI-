@@ -1,4 +1,4 @@
-.PHONY: install install-prod dev test lint run worker worker-once seed build frontend-install frontend-test frontend-build check compose lock openapi clean
+.PHONY: install install-prod dev test lint run worker worker-once build frontend-install frontend-test frontend-build check compose lock openapi clean
 
 install:
 	python -m pip install -e .
@@ -24,9 +24,6 @@ worker:
 
 worker-once:
 	fraudshield worker --once
-
-seed:
-	python scripts/seed_demo.py
 
 build:
 	python -m build --no-isolation

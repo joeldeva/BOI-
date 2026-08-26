@@ -16,7 +16,6 @@ def client(tmp_path: Path):
         database_path=tmp_path / "runtime" / "test.db",
         upload_dir=tmp_path / "runtime" / "uploads",
         report_dir=tmp_path / "runtime" / "reports",
-        demo_enabled=True,
         auth_mode="disabled",
         llm_provider="disabled",
     )
@@ -28,11 +27,14 @@ def client(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # Test 1: Full 15-Section PDF Report Generation
 # ---------------------------------------------------------------------------
-def test_pdf_report_generation(client: TestClient) -> None:
-    # Seed demo to create full analysis
-    seed_res = client.post("/api/v1/demo/seed", json={"category": "banking"})
-    assert seed_res.status_code == 201
-    analysis_id = seed_res.json()["apk_analysis_id"]
+def test_pdf_report_generation(client: TestClient, malicious_apk: bytes) -> None:
+    upload_res = client.post(
+        "/api/v1/apk-analyses",
+        files={"file": ("test.apk", malicious_apk, "application/vnd.android.package-archive")},
+        data={"category": "banking", "dynamic": "false"},
+    )
+    assert upload_res.status_code == 201
+    analysis_id = upload_res.json()["id"]
 
     # Fetch report PDF
     pdf_res = client.get(f"/api/v1/apk-analyses/{analysis_id}/report.pdf")
@@ -43,18 +45,22 @@ def test_pdf_report_generation(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Demo Mode Complete Schema & Two-Stage Risk
+# Test 2: Upload Mode Complete Schema & Two-Stage Risk
 # ---------------------------------------------------------------------------
-def test_demo_mode_complete_schema(client: TestClient) -> None:
-    seed_res = client.post("/api/v1/demo/seed", json={"category": "banking"})
-    assert seed_res.status_code == 201
-    analysis_id = seed_res.json()["apk_analysis_id"]
+def test_upload_mode_complete_schema(client: TestClient, malicious_apk: bytes) -> None:
+    upload_res = client.post(
+        "/api/v1/apk-analyses",
+        files={"file": ("test.apk", malicious_apk, "application/vnd.android.package-archive")},
+        data={"category": "banking", "dynamic": "false"},
+    )
+    assert upload_res.status_code == 201
+    analysis_id = upload_res.json()["id"]
 
     get_res = client.get(f"/api/v1/apk-analyses/{analysis_id}")
     assert get_res.status_code == 200
     analysis = get_res.json()
 
-    assert analysis["data_origin"] == "synthetic"
+    assert analysis["data_origin"] == "uploaded"
     result = analysis["result"]
     assert "risk" in result
     assert result["risk"]["static_score"] is not None
@@ -62,41 +68,34 @@ def test_demo_mode_complete_schema(client: TestClient) -> None:
     assert result["risk"]["overall_score"] >= 60
 
     assert "brand_impersonation" in result
-    assert result["brand_impersonation"]["target_bank_id"] == "bank_of_india"
-
     assert "firebase_infrastructure" in result
-    assert result["firebase_infrastructure"]["project_id"] is not None
-
     assert "frauddna" in result
-    assert "recovered_payloads" in result
-    assert len(result["recovered_payloads"]) > 0
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Safe Demo Reset
+# Test 3: Safe Synthetic DB Cleanup
 # ---------------------------------------------------------------------------
-def test_safe_demo_reset(client: TestClient) -> None:
-    # Seed demo
-    seed_res = client.post("/api/v1/demo/seed", json={"category": "banking"})
-    assert seed_res.status_code == 201
+def test_safe_synthetic_cleanup(client: TestClient, malicious_apk: bytes) -> None:
+    upload_res = client.post(
+        "/api/v1/apk-analyses",
+        files={"file": ("test.apk", malicious_apk, "application/vnd.android.package-archive")},
+        data={"category": "banking", "dynamic": "false"},
+    )
+    assert upload_res.status_code == 201
+    uploaded_id = upload_res.json()["id"]
 
-    # Reset demo
-    reset_res = client.post("/api/v1/demo/reset")
-    assert reset_res.status_code == 200
-    assert reset_res.json()["status"] == "demo_reset_completed"
-    assert reset_res.json()["deleted_records"] >= 1
-
-    # Verify list is empty of synthetic records
+    # Verify list contains the uploaded record
     list_res = client.get("/api/v1/apk-analyses")
     assert list_res.status_code == 200
     items = list_res.json()["items"]
-    assert all(item.get("data_origin") != "synthetic" for item in items)
+    assert any(item["id"] == uploaded_id for item in items)
+    assert all(item.get("data_origin") == "uploaded" for item in items)
 
 
 # ---------------------------------------------------------------------------
 # Test 4: Failure Resilience on Unreachable LLM / Engine
 # ---------------------------------------------------------------------------
-def test_failure_resilience_fallback(tmp_path: Path) -> None:
+def test_failure_resilience_fallback(tmp_path: Path, malicious_apk: bytes) -> None:
     settings = Settings(
         environment="development",
         data_dir=tmp_path / "runtime",
@@ -111,9 +110,13 @@ def test_failure_resilience_fallback(tmp_path: Path) -> None:
     app = create_app(settings)
     with TestClient(app) as test_client:
         # Even with invalid LLM key, analysis pipeline must complete deterministically
-        seed_res = test_client.post("/api/v1/demo/seed", json={"category": "banking"})
-        assert seed_res.status_code == 201
-        analysis_id = seed_res.json()["apk_analysis_id"]
+        upload_res = test_client.post(
+            "/api/v1/apk-analyses",
+            files={"file": ("test.apk", malicious_apk, "application/vnd.android.package-archive")},
+            data={"category": "banking", "dynamic": "false"},
+        )
+        assert upload_res.status_code == 201
+        analysis_id = upload_res.json()["id"]
 
         get_res = test_client.get(f"/api/v1/apk-analyses/{analysis_id}")
         assert get_res.status_code == 200

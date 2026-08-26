@@ -6,10 +6,8 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 COPY . ./
 
 ARG VITE_API_BASE_URL=""
-ARG VITE_DEMO_ENABLED="false"
 ARG VITE_MAX_APK_MB="75"
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
-    VITE_DEMO_ENABLED=${VITE_DEMO_ENABLED} \
     VITE_MAX_APK_MB=${VITE_MAX_APK_MB}
 # Tests and lint are verified in CI test-lint-build job (full repo context).
 # Container build only needs type-check + production bundle.

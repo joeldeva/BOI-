@@ -77,25 +77,23 @@ def test_apk_analysis_persistence_pdf_and_multi_engine_contract(client, maliciou
     assert report.content.startswith(b"%PDF")
 
 
-def test_apk_demo_is_explicit_and_reproducible(client) -> None:
-    first = client.post("/api/v1/demo/seed", json={"category": "banking"})
-    second = client.post("/api/v1/demo/seed", json={"category": "banking"})
-    assert first.status_code == 201, first.text
-    assert second.status_code == 201, second.text
-    one = first.json()
-    two = second.json()
-    assert one["data_origin"] == "synthetic"
-    assert one["apk_risk"] == two["apk_risk"]
-    assert one["malware_assessment"]["safe_to_install"] is False
-    analysis = client.get(f"/api/v1/apk-analyses/{one['apk_analysis_id']}")
-    assert analysis.status_code == 200
-    assert analysis.json()["data_origin"] == "synthetic"
+def test_demo_routes_are_absent(client) -> None:
+    seed_res = client.post("/api/v1/demo/seed", json={"category": "banking"})
+    assert seed_res.status_code == 404
+    apk_res = client.post("/api/v1/demo/apk-analysis")
+    assert apk_res.status_code == 404
+    legacy_seed = client.post("/seed-demo")
+    assert legacy_seed.status_code == 404
 
 
-def test_legacy_apk_only_contract_uses_persisted_results(client) -> None:
-    seeded = client.post("/seed-demo")
-    assert seeded.status_code == 200
-    analysis_id = seeded.json()["apk_analysis_id"]
+def test_legacy_apk_only_contract_uses_persisted_results(client, malicious_apk: bytes) -> None:
+    res = client.post(
+        "/analyze-apk",
+        files={"file": ("legacy.apk", malicious_apk, "application/vnd.android.package-archive")},
+        data={"category": "banking", "dynamic": "false"},
+    )
+    assert res.status_code == 200
+    analysis_id = res.json()["analysis_id"]
     report = client.get(f"/report/{analysis_id}.pdf")
     assert report.status_code == 200
     assert report.content.startswith(b"%PDF")

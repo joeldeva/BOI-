@@ -367,55 +367,6 @@ class MultiEngineAnalyzer:
             "base_extractor": extraction.get("engine", "unknown"),
         }
 
-    def demo_result(self) -> dict[str, Any]:
-        return {
-            "schema_version": "1.0",
-            "orchestrator_version": self.version,
-            "policy": {
-                "public_binary_uploads": False,
-                "external_hash_lookups": False,
-                "mobsf_binary_transfer": False,
-                "unknown_is_safe": False,
-            },
-            "summary": {
-                "completed": 1,
-                "unavailable_or_failed": 0,
-                "normalized_finding_count": 1,
-                "tracker_count": 0,
-            },
-            "engines": [
-                _status(
-                    "synthetic_fixture",
-                    "Explicit synthetic fixture",
-                    "completed",
-                    duration_ms=0,
-                    summary={"synthetic": True},
-                )
-            ],
-            "normalized_findings": [
-                {
-                    "id": "SYNTHETIC:loader",
-                    "engine": "synthetic_fixture",
-                    "title": "Synthetic secondary DEX loader evidence",
-                    "severity": "HIGH",
-                    "confidence": 1.0,
-                    "risk_category": "evasion_resilience",
-                    "risk_points": 10,
-                    "evidence": ["assets/update.dex", "DexClassLoader"],
-                    "score_eligible": True,
-                    "synthetic": True,
-                }
-            ],
-            "reputation": {
-                "verdict": "not-queried",
-                "known_malicious": False,
-                "providers": [],
-                "notice": "Synthetic evidence is never submitted to reputation providers.",
-            },
-            "coverage_note": "Synthetic fixture for demonstrations; not an uploaded APK.",
-            "base_extractor": "explicit-demo-fixture",
-        }
-
     def _guarded(
         self,
         engine_id: str,

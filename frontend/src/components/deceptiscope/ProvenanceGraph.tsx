@@ -200,7 +200,7 @@ export function ProvenanceGraph({ result }: ProvenanceGraphProps) {
           <BrainCircuit className="w-10 h-10 text-slate-600 mb-3" />
           <p className="text-sm font-bold text-slate-400">Provenance data not available for this record</p>
           <p className="text-xs text-slate-500 mt-1 max-w-sm">
-            Run an analysis or load a demonstration APK to visualize the end-to-end evidence graph.
+            Upload and analyze an APK to visualize the end-to-end evidence graph.
           </p>
         </div>
       </section>

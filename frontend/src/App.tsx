@@ -21,8 +21,6 @@ import type {
   JobRecord,
 } from './types/api';
 
-const demoEnabled = import.meta.env.VITE_DEMO_ENABLED !== 'false';
-
 const asError = (value: unknown): Error =>
   value instanceof Error ? value : new Error(typeof value === 'string' ? value : 'Unexpected error');
 
@@ -34,7 +32,6 @@ export default function App() {
   const [recentApks, setRecentApks] = useState<ApkAnalysisRecord[]>([]);
   const [selectedApk, setSelectedApk] = useState<ApkAnalysisRecord | null>(null);
   const [isUploadingApk, setIsUploadingApk] = useState(false);
-  const [isDemoLoading, setIsDemoLoading] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [globalError, setGlobalError] = useState<Error | string | null>(null);
   const [apkJob, setApkJob] = useState<JobRecord | null>(null);
@@ -63,22 +60,6 @@ export default function App() {
     void fetchDashboardData();
     return () => apkPoll.current?.abort();
   }, [fetchDashboardData]);
-
-  const handleLaunchDemo = async () => {
-    if (!demoEnabled) return;
-    setIsDemoLoading(true);
-    setGlobalError(null);
-    try {
-      const seeded = await apiService.seedDemo('banking');
-      setSelectedApk(await apiService.getApkAnalysis(seeded.apk_analysis_id));
-      setActiveTab('deceptiscope');
-      await fetchDashboardData();
-    } catch (error) {
-      setGlobalError(asError(error));
-    } finally {
-      setIsDemoLoading(false);
-    }
-  };
 
   const handleUploadApk = async (file: File, category: string, dynamic: boolean) => {
     setIsUploadingApk(true);
@@ -137,10 +118,7 @@ export default function App() {
         health={health}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
-        onLaunchHeroDemo={handleLaunchDemo}
-        isDemoLoading={isDemoLoading}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        demoEnabled={demoEnabled}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
@@ -158,10 +136,7 @@ export default function App() {
                 setActiveTab('deceptiscope');
               }).catch((error: unknown) => setGlobalError(asError(error)));
             }}
-            onLaunchDemo={handleLaunchDemo}
-            isDemoLoading={isDemoLoading}
             onNavigateTab={setActiveTab}
-            demoEnabled={demoEnabled}
           />
         )}
 

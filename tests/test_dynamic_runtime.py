@@ -8,8 +8,9 @@ from typing import Any
 import pytest
 
 from fraudshield.core.errors import ConfigurationError
-from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer, SYNTHETIC_OTP_MARKER
+from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer
 from fraudshield.deceptiscope.experiments import ExperimentType
+from fraudshield.deceptiscope.lineage.markers import SyntheticMarkerManager
 
 
 PACKAGE = "com.example.demobank"
@@ -83,8 +84,10 @@ def test_runtime_evidence_normalization_ids_timestamps_and_marker_correlation(
     monkeypatch.setattr("fraudshield.deceptiscope.dynamic.shutil.which", lambda value: "adb")
     apk = tmp_path / "sample.apk"
     apk.write_bytes(b"apk")
+    marker_manager = SyntheticMarkerManager()
+    active_marker = marker_manager.create_otp_marker()
     logcat = (
-        f"08-25 10:00:01.000 1234 1234 I {PACKAGE}: SmsManager read {SYNTHETIC_OTP_MARKER}\n"
+        f"08-25 10:00:01.000 1234 1234 I {PACKAGE}: SmsManager read {active_marker.value}\n"
         f"08-25 10:00:02.000 1234 1234 I {PACKAGE}: DexClassLoader loaded payload.dex\n"
         f"08-25 10:00:03.000 1234 1234 I {PACKAGE}: WebView addJavascriptInterface https://c2.example.invalid/gate\n"
         f"08-25 10:00:04.000 1234 1234 I {PACKAGE}: AccessibilityService dispatchGesture\n"
@@ -102,6 +105,7 @@ def test_runtime_evidence_normalization_ids_timestamps_and_marker_correlation(
             ExperimentType.WEBVIEW_OBSERVATION,
             ExperimentType.ACCESSIBILITY_OBSERVATION,
         ],
+        active_marker=active_marker,
     )
 
     evidence = result["runtime_evidence"]
@@ -121,7 +125,7 @@ def test_runtime_evidence_normalization_ids_timestamps_and_marker_correlation(
     } <= evidence_types
     marker = next(item for item in evidence if item["evidence_type"] == "synthetic_marker_correlation")
     assert marker["confidence"] == 1.0
-    assert marker["metadata"]["marker"] == SYNTHETIC_OTP_MARKER
+    assert marker["metadata"]["marker"] == active_marker.value
     assert any(item["status"] == "COMPLETED" for item in result["experiment_results"])
 
 

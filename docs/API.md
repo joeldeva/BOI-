@@ -39,10 +39,9 @@ A completed job returns `result.analysis_id` and `result.resource`.
 ## APK analyses
 
 - `POST /api/v1/apk-analyses` — synchronous development route; may be disabled.
-- `GET /api/v1/apk-analyses`
-- `GET /api/v1/apk-analyses/{analysis_id}`
+- `GET /api/v1/apk-analyses` — retrieve persistent real analysis history.
+- `GET /api/v1/apk-analyses/{analysis_id}` — retrieve full analysis record.
 - `GET /api/v1/apk-analyses/{analysis_id}/report.pdf`
-- `POST /api/v1/demo/apk-analysis`
 - `POST /api/v1/method-review` — bounded deterministic review of supplied snippets, not decompilation.
 
 Result schema `3.0` adds:
@@ -81,10 +80,6 @@ High/critical APK analyses can emit `apk_sha256`, domain, IP, certificate SHA-25
 - `GET /api/v1/audit-events`
 - `GET /api/v1/audit-events/{event_id}`
 - `GET /api/v1/audit-events/verify`
-
-## Demo
-
-`POST /api/v1/demo/seed` with `{"category":"banking"}` creates only an explicit synthetic APK analysis. Demo routes are forbidden in the production profile.
 
 ## Errors
 

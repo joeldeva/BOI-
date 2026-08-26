@@ -638,83 +638,6 @@
         }
       }
     },
-    "/api/v1/demo/apk-analysis": {
-      "post": {
-        "tags": [
-          "DeceptiScope"
-        ],
-        "summary": "Demo Apk Analysis",
-        "operationId": "demo_apk_analysis_api_v1_demo_apk_analysis_post",
-        "parameters": [
-          {
-            "name": "category",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "default": "banking",
-              "title": "Category"
-            }
-          },
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "x-api-key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Demo Apk Analysis Api V1 Demo Apk Analysis Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/audit-events": {
       "get": {
         "tags": [
@@ -1651,83 +1574,6 @@
         }
       }
     },
-    "/api/v1/demo/seed": {
-      "post": {
-        "tags": [
-          "Reproducible demo"
-        ],
-        "summary": "Seed Demo",
-        "operationId": "seed_demo_api_v1_demo_seed_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "x-api-key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DemoSeedRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Seed Demo Api V1 Demo Seed Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/deceptiscope/analyze": {
       "post": {
         "tags": [
@@ -1867,74 +1713,6 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Analyze Apk Legacy Analyze Apk Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/seed-demo": {
-      "post": {
-        "tags": [
-          "Legacy compatibility"
-        ],
-        "summary": "Seed Demo Legacy",
-        "operationId": "seed_demo_legacy_seed_demo_post",
-        "deprecated": true,
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          },
-          {
-            "name": "x-api-key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Seed Demo Legacy Seed Demo Post"
                 }
               }
             }
@@ -2278,19 +2056,6 @@
           "file"
         ],
         "title": "Body_queue_apk_analysis_api_v1_jobs_apk_analysis_post"
-      },
-      "DemoSeedRequest": {
-        "properties": {
-          "category": {
-            "type": "string",
-            "pattern": "^(banking|finance|utility|other)$",
-            "title": "Category",
-            "default": "banking"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "DemoSeedRequest"
       },
       "HTTPValidationError": {
         "properties": {

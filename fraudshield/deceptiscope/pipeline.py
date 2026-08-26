@@ -8,7 +8,6 @@ from typing import Any
 from fraudshield.core.config import Settings
 from fraudshield.core.errors import FraudShieldError
 from fraudshield.core.repository import AnalysisRepository, IndicatorRepository
-from fraudshield.deceptiscope.demo import hero_apk_profile
 from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer
 from fraudshield.deceptiscope.engines import MultiEngineAnalyzer, malware_assessment
 from fraudshield.deceptiscope.extractor import StaticAPKExtractor
@@ -369,98 +368,6 @@ class APKAnalysisPipeline:
         finally:
             if not self.settings.retain_uploads:
                 path.unlink(missing_ok=True)
-
-    def analyze_demo(self, category: str = "banking") -> dict[str, Any]:
-        extraction = hero_apk_profile()
-        file_info = extraction["file"]
-        record = self.analyses.create(
-            file_name=file_info["name"],
-            sha256=file_info["sha256"],
-            size_bytes=0,
-            category=category,
-            data_origin="synthetic",
-        )
-        self.analyses.mark_running(record["id"])
-        return self._complete_demo(record["id"], extraction, category, self.engines.demo_result())
-
-    def _complete_demo(
-        self,
-        analysis_id: str,
-        extraction: dict[str, Any],
-        category: str,
-        engine_analysis: dict[str, Any],
-    ) -> dict[str, Any]:
-        fraud_delta = self.delta.calculate(extraction, category)
-        runtime_evidence = list(extraction.get("runtime_evidence", []))
-        experiment_results = list(extraction.get("dynamic_experiment_results", []))
-        risk = self.scorer.calculate(
-            extraction,
-            fraud_delta,
-            engine_analysis=engine_analysis,
-            runtime_evidence=runtime_evidence,
-            experiment_results=experiment_results,
-        )
-        assessment = malware_assessment(extraction, risk, engine_analysis)
-        mitre = map_mitre_mobile(extraction)
-        candidates = self._indicator_candidates(extraction, risk)
-        findings: dict[str, Any] = {
-            "schema_version": "3.0",
-            "analysis_id": analysis_id,
-            "extraction": extraction,
-            "engine_analysis": engine_analysis,
-            "risk": risk,
-            "malware_assessment": assessment,
-            "fraud_delta": fraud_delta,
-            "mitre_attack": mitre,
-            "indicator_candidates": candidates,
-            "emitted_indicators": [],
-            "runtime_evidence": runtime_evidence,
-            "experiment_results": experiment_results,
-            "recovered_payloads": list(extraction.get("recovered_payloads", [])),
-            "payload_lineage": list(extraction.get("payload_lineage", [])),
-            "decision_notice": (
-                "Analyst decision support only; no automated enforcement or account action is performed."
-            ),
-        }
-        emitted = self._emit_candidates(analysis_id, candidates, risk)
-        findings["emitted_indicators"] = emitted
-        
-        # Firebase Static Extraction
-        firebase_infra = self.firebase_extractor.extract_from_findings(extraction)
-
-        # Banking-Brand Impersonation Analysis
-        brand_impersonation = self.brand_analyzer.analyze(
-            extraction=extraction,
-            method_evidence=extraction.get("method_level_evidence"),
-        )
-
-        findings["brand_impersonation"] = brand_impersonation.model_dump(mode="json")
-        findings["firebase_infrastructure"] = firebase_infra.model_dump(mode="json")
-
-        # FraudDNA Fingerprinting & Campaign Correlation
-        frauddna_fp = self.frauddna_extractor.extract(findings)
-        campaign, related_samples = self.campaign_correlator.correlate(frauddna_fp)
-        findings["frauddna"] = frauddna_fp.model_dump(mode="json")
-        findings["related_samples"] = [r.model_dump(mode="json") for r in related_samples]
-        if campaign:
-            findings["campaign"] = campaign.model_dump(mode="json")
-
-        findings["ai_investigation"] = self.ai_investigator.investigate(findings)
-        narrative = self.narratives.explain(findings)
-        findings["narrative_metadata"] = {
-            "source": narrative.source,
-            "warning": narrative.warning,
-            "llm_controls_score": False,
-        }
-        return self.analyses.complete(
-            analysis_id,
-            result=findings,
-            narrative=narrative.text,
-            overall_score=risk["overall_score"],
-            severity=risk["severity"],
-            confidence=risk["confidence"],
-            analysis_quality=extraction["analysis_quality"],
-        )
 
     @staticmethod
     def _indicator_candidates(extraction: dict[str, Any], risk: dict[str, Any]) -> list[dict[str, Any]]:

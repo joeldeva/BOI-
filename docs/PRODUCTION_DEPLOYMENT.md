@@ -69,7 +69,7 @@ long-lived cloud credentials are not the recommended design.
 4. Produce SBOMs and provenance attestations; sign both backend and frontend images.
 5. Mirror base images and dependencies into approved internal registries.
 6. Pin both deployed images by digest in the production values file. Build the
-   frontend with `VITE_DEMO_ENABLED=false` and an empty same-origin API base URL.
+   frontend with an empty same-origin API base URL.
 7. Obtain change, security, data-owner, and service-owner approvals.
 
 The checked-in CI is a baseline. The bank release pipeline remains responsible

@@ -15,11 +15,10 @@ def main() -> None:
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", default=8000, type=int)
     subcommands.add_parser("init-db", help="Initialize the configured database schema")
+    subcommands.add_parser("cleanup-db", help="Safely clean legacy synthetic demo records from database")
     worker = subcommands.add_parser("worker", help="Run the durable analysis worker")
     worker.add_argument("--once", action="store_true", help="Process at most one queued job")
     worker.add_argument("--worker-id", default=None)
-    subcommands.add_parser("seed-demo", help="Run and persist the explicit synthetic APK demo")
-    subcommands.add_parser("demo-reset", help="Safely clean synthetic demo analysis records from database")
     args = parser.parse_args()
 
     if args.command == "serve":
@@ -45,9 +44,9 @@ def main() -> None:
         print(json.dumps({"status": "initialized", "database_backend": services.db.backend}))
         services.db.close()
         return
-    if args.command == "demo-reset":
-        deleted = services.analyses.delete_synthetic_demo_records()
-        print(json.dumps({"status": "demo_reset_completed", "deleted_records": deleted}))
+    if args.command == "cleanup-db":
+        results = services.analyses.cleanup_synthetic_records()
+        print(json.dumps({"status": "cleanup_completed", **results}))
         services.db.close()
         return
     if args.command == "worker":
@@ -62,18 +61,6 @@ def main() -> None:
         finally:
             services.db.close()
         return
-    apk = services.apk_pipeline.analyze_demo("banking")
-    print(
-        json.dumps(
-            {
-                "status": "demo_seeded",
-                "apk_analysis_id": apk["id"],
-                "risk": apk["result"]["risk"],
-                "malware_assessment": apk["result"]["malware_assessment"],
-            },
-            indent=2,
-        )
-    )
     services.db.close()
 
 

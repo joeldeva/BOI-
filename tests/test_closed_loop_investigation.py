@@ -7,7 +7,7 @@ from typing import Any
 from fraudshield.core.config import Settings
 from fraudshield.core.database import Database
 from fraudshield.core.repository import AnalysisRepository, IndicatorRepository
-from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer, SYNTHETIC_OTP_MARKER
+from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer
 from fraudshield.deceptiscope.experiments import (
     ExperimentPlanner,
 )
@@ -19,6 +19,7 @@ from fraudshield.deceptiscope.investigation import (
 from fraudshield.deceptiscope.pipeline import APKAnalysisPipeline
 import pytest
 
+SYNTHETIC_OTP_MARKER = "TEST-OTP-749231"
 PACKAGE = "com.example.demobank"
 
 
@@ -514,17 +515,28 @@ def test_static_only_analysis_succeeds(
     assert all(item["status"] == "SKIPPED" for item in exp_plan)
 
 
-# 10. Demo/synthetic workflow remains clearly marked synthetic
-def test_demo_workflow_clearly_marked_synthetic(
+# 10. Real uploaded workflow sets data_origin='uploaded' and analyze_demo is absent
+def test_uploaded_workflow_data_origin(
     settings,
     tmp_path: Path,
+    malicious_apk: bytes,
 ) -> None:
     pipeline, _ = _setup_pipeline(tmp_path, settings, mock_ai=False)
-    result = pipeline.analyze_demo(category="banking")
+    assert not hasattr(pipeline, "analyze_demo")
+
+    apk_file = tmp_path / "sample.apk"
+    apk_file.write_bytes(malicious_apk)
+    result = pipeline.analyze_uploaded(
+        path=apk_file,
+        original_name="sample.apk",
+        sha256="0" * 64,
+        size_bytes=len(malicious_apk),
+        category="banking",
+        dynamic=False,
+    )
 
     assert result["status"] == "completed"
-    assert result["data_origin"] == "synthetic"
+    assert result["data_origin"] == "uploaded"
     findings = result["result"]
-    assert findings["extraction"]["analysis_quality"] == "synthetic"
-    assert len(findings["extraction"]["permissions"]["flagged_dangerous"]) > 0
-    assert findings["ai_investigation"]["status"] == "disabled"  # default llm_provider is disabled
+    assert findings["extraction"]["analysis_quality"] in {"static-only", "partial"}
+    assert findings["ai_investigation"]["status"] == "disabled"

@@ -135,6 +135,22 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         CREATE INDEX IF NOT EXISTS idx_audit_events_key_id ON audit_events(audit_key_id);
         """,
     ),
+    (
+        6,
+        """
+        DELETE FROM indicator_sightings
+        WHERE source_analysis_id IN (
+            SELECT id FROM analyses WHERE data_origin = 'synthetic'
+        );
+
+        DELETE FROM indicators
+        WHERE id NOT IN (
+            SELECT DISTINCT indicator_id FROM indicator_sightings
+        );
+
+        DELETE FROM analyses WHERE data_origin = 'synthetic';
+        """,
+    ),
 )
 
 
