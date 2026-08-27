@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""End-to-end verification script for running FraudShield DeceptiScope instance."""
+"""API smoke and upload contract verification script for FraudShield DeceptiScope.
+
+NOTE: This script performs HTTP/API contract and static extraction smoke testing.
+It does NOT substitute for physical Android emulator / Frida runtime E2E validation.
+"""
 
 import io
 import zipfile
@@ -8,7 +12,7 @@ import httpx
 BASE_URL = "http://127.0.0.1:8000"
 client = httpx.Client(base_url=BASE_URL, timeout=30.0)
 
-print("================ SYSTEM VERIFICATION ================")
+print("================ API SMOKE & UPLOAD CONTRACT VERIFICATION ================")
 
 # 1. Health checks
 r_live = client.get("/health/live")
@@ -39,8 +43,8 @@ r_magic = client.post(
 print(f"   Non-ZIP rejection: {r_magic.status_code} (Code: {r_magic.json()['error']['code']})")
 assert r_magic.status_code == 422
 
-# 4. Actual APK Analysis Upload
-print("\n5. Actual APK Analysis Upload:")
+# 4. Minimal APK Upload Contract Verification (Smoke Test)
+print("\n5. Minimal APK Upload Contract Verification (Smoke Test):")
 apk_buf = io.BytesIO()
 with zipfile.ZipFile(apk_buf, "w") as z:
     z.writestr("AndroidManifest.xml", "<manifest package='com.example.verify'/>")
@@ -52,7 +56,7 @@ r_upload = client.post(
     files={"file": ("verify.apk", apk_bytes, "application/vnd.android.package-archive")},
     data={"category": "banking"},
 )
-print(f"   APK Analysis Submission: {r_upload.status_code}")
+print(f"   API Upload Submission: {r_upload.status_code}")
 assert r_upload.status_code in (200, 201)
 upload_data = r_upload.json()
 apk_id = upload_data.get("id") or upload_data.get("analysis_id")
@@ -69,4 +73,6 @@ print(f"   PDF Report Download: {r_pdf.status_code} (Size: {len(r_pdf.content)} 
 assert r_pdf.status_code == 200
 assert r_pdf.content.startswith(b"%PDF-")
 
-print("\n>>> ALL SYSTEM CHECKS PASSED SUCCESSFULLY! <<<")
+print("\n[NOTE] API smoke / contract verification completed successfully.")
+print("[NOTE] Real Android emulator / Frida E2E requires a physical/emulated device pool.")
+print(">>> ALL API SMOKE CHECKS PASSED <<<")

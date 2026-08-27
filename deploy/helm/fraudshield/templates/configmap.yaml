@@ -47,7 +47,6 @@ data:
   FRAUDSHIELD_EXTERNAL_LOOKUP_TIMEOUT_SECONDS: {{ .Values.config.analysis.externalLookupTimeoutSeconds | quote }}
   FRAUDSHIELD_VIRUSTOTAL_MALICIOUS_THRESHOLD: {{ .Values.config.analysis.virustotalMaliciousThreshold | quote }}
   FRAUDSHIELD_DOCS_ENABLED: "false"
-  FRAUDSHIELD_DEMO_ENABLED: "false"
   FRAUDSHIELD_LEGACY_API_ENABLED: "false"
   FRAUDSHIELD_INLINE_ANALYSIS_ENABLED: "false"
   FRAUDSHIELD_METRICS_ENABLED: "true"

@@ -4,7 +4,6 @@ x-fraudshield-development: &fraudshield-development
   FRAUDSHIELD_DATA_DIR: /var/lib/fraudshield
   FRAUDSHIELD_STORAGE_BACKEND: local
   FRAUDSHIELD_DOCS_ENABLED: "true"
-  FRAUDSHIELD_DEMO_ENABLED: "true"
   FRAUDSHIELD_LEGACY_API_ENABLED: "false"
   FRAUDSHIELD_INLINE_ANALYSIS_ENABLED: "false"
   FRAUDSHIELD_METRICS_ENABLED: "false"
@@ -48,7 +47,6 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ""
-        VITE_DEMO_ENABLED: "true"
         VITE_MAX_APK_MB: "75"
     environment:
       FRAUDSHIELD_API_UPSTREAM: http://fraudshield-api:8000

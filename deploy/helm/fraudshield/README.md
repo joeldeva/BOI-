@@ -19,7 +19,7 @@ storage, a KMS, or a secrets manager; those must be bank-managed HA services.
 7. A bank access proxy/BFF that performs the approved OIDC browser flow and
    forwards a validated Bearer access token to the API. The chart does not
    fabricate the bank identity/session layer.
-8. A frontend image built with `VITE_DEMO_ENABLED=false` and pinned by digest.
+8. A frontend container image pinned by content digest.
 9. Worker images containing every local engine enabled in `config.analysis`.
    Validate the deployed capability endpoint; an enabled but absent optional
    package or executable is reported as `unavailable`.

@@ -39,10 +39,8 @@ jobs:
         run: python -m pytest tests -ra
       - name: Python SCA dependency audit (pip-audit)
         run: |
-          pip-audit --desc on --strict --format json -o backend-audit.json || {
-            echo "::warning::Vulnerabilities detected by pip-audit"
-            pip-audit --desc on --format columns
-          }
+          pip-audit --skip-editable --desc on --format json -o backend-audit.json
+          pip-audit --skip-editable --desc on
       - name: Build wheel and sdist package
         run: python -m build
       - name: Generate Backend CycloneDX SBOM
@@ -85,7 +83,7 @@ jobs:
         with:
           image-ref: fraudshield:${{ github.sha }}
           format: "table"
-          exit-code: "0"
+          exit-code: "1"
           ignore-unfixed: true
           severity: "CRITICAL,HIGH"
       - name: Lint Helm chart (default)
