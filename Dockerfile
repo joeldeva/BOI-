@@ -21,8 +21,8 @@ COPY pyproject.toml README.md LICENSE ./
 COPY fraudshield ./fraudshield
 
 RUN "$BUILD_VIRTUAL_ENV/bin/python" -m build --wheel --no-isolation --outdir /build/dist \
-    && "$VIRTUAL_ENV/bin/python" -m pip install --upgrade "pip>=25.0" "setuptools>=78.1.1" wheel \
-    && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir $(ls /build/dist/fraudshield_backend-*.whl)[production,analysis] "msgpack>=1.2.1"
+    && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir $(ls /build/dist/fraudshield_backend-*.whl)[production,analysis] \
+    && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir --upgrade "pip>=25.0" "setuptools>=78.1.1" "msgpack>=1.2.1"
 
 
 
@@ -44,7 +44,7 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends apksigner curl \
     && rm -rf /var/lib/apt/lists/* \
-    && python3 -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1" "msgpack>=1.2.1" || true
+    && rm -rf /usr/local/lib/python3.12/site-packages/setuptools* /usr/local/lib/python3.12/site-packages/pkg_resources* /usr/local/lib/python3.12/site-packages/pip*
 
 RUN groupadd --system --gid 10001 fraudshield \
     && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin fraudshield \
