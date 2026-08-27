@@ -41,6 +41,7 @@ ENV VIRTUAL_ENV=/opt/fraudshield-venv \
     FRAUDSHIELD_APKSIGNER_PATH=/usr/bin/apksigner
 
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends apksigner curl \
     && rm -rf /var/lib/apt/lists/*
 

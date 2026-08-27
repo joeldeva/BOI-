@@ -19,6 +19,8 @@ LABEL org.opencontainers.image.title="FraudShield DeceptiScope" \
       org.opencontainers.image.version="3.0.0" \
       org.opencontainers.image.description="Evidence-grounded multi-engine APK analysis frontend"
 
+RUN apk update && apk upgrade --no-cache
+
 COPY --from=builder --chown=101:101 /app/dist /usr/share/nginx/html
 COPY --chown=101:101 nginx.conf.template /etc/nginx/templates/default.conf.template
 RUN rm -f /etc/nginx/conf.d/default.conf \
