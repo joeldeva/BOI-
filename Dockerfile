@@ -43,7 +43,8 @@ ENV VIRTUAL_ENV=/opt/fraudshield-venv \
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends apksigner curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m pip install --no-cache-dir --upgrade "setuptools>=78.1.1" "msgpack>=1.2.1" || true
 
 RUN groupadd --system --gid 10001 fraudshield \
     && useradd --system --uid 10001 --gid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin fraudshield \
