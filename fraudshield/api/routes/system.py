@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fraudshield.api.dependencies import container
 from fraudshield.core.security import require_api_key
 from fraudshield.deceptiscope.experiments import CATALOG_VERSION, TrustedExperimentRegistry
+from fraudshield.deceptiscope.investigation import llm_capability_status
 from fraudshield.services.container import ServiceContainer
 
 
@@ -80,11 +81,7 @@ def capabilities(services: Annotated[ServiceContainer, Depends(container)]) -> d
         "apk_only_product": True,
         "multi_engine": services.apk_pipeline.engines.capabilities(),
         "dynamic_lite": services.apk_pipeline.dynamic.status(),
-        "llm": {
-            "provider": services.settings.llm_provider,
-            "configured": services.settings.llm_provider != "disabled",
-            "controls_risk_score": False,
-        },
+        "llm": llm_capability_status(services.settings),
         "ai_experiments": {
             "catalog_version": CATALOG_VERSION,
             "plan_limit": services.settings.ai_experiment_plan_limit,

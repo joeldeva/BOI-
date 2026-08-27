@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -38,20 +39,60 @@ class FridaHost:
         self.settings = settings
         self.registry = registry or ObserverRegistry(settings=settings)
 
-    def status(self) -> dict[str, Any]:
-        """Checks if Frida runtime capability is configured and available."""
+    def status(self, *, probe_connectivity: bool = False, timeout_seconds: float = 3.0) -> dict[str, Any]:
+        """Report host dependency and, when requested, bounded server connectivity."""
         import importlib.util
+
         frida_installed = importlib.util.find_spec("frida") is not None
         configured_enabled = self.settings.frida_runtime_enabled and self.settings.dynamic_analysis_enabled
+        server_reachable: bool | None = None
+        reason = "Frida runtime instrumentation is disabled by configuration."
+
+        if configured_enabled and not frida_installed:
+            reason = "Frida Python dependency is not installed."
+        elif configured_enabled and frida_installed and not probe_connectivity:
+            reason = "Frida dependency is available; emulator/server connectivity was not probed."
+        elif configured_enabled and frida_installed:
+            server_reachable, reason = self._probe_server_connectivity(timeout_seconds)
 
         return {
             "configured_enabled": self.settings.frida_runtime_enabled,
             "host_dependency_available": frida_installed,
             "frida_installed": frida_installed,
-            "runtime_ready": configured_enabled and frida_installed,
+            "server_reachable": server_reachable,
+            "runtime_ready": configured_enabled and frida_installed and server_reachable is True,
+            "reason": reason,
             "adb_path": self.settings.adb_path,
             "emulator_serial": self.settings.adb_emulator_serial or None,
         }
+
+    def _probe_server_connectivity(self, timeout_seconds: float) -> tuple[bool, str]:
+        """Bound a Frida device/server probe without blocking capability requests indefinitely."""
+        result: dict[str, Any] = {}
+
+        def probe() -> None:
+            try:
+                import frida  # type: ignore
+
+                serial = self.settings.adb_emulator_serial
+                if not serial:
+                    result["reason"] = "A configured emulator serial is required for Frida connectivity."
+                    return
+                manager = frida.get_device_manager()
+                device = manager.get_device(serial, timeout=max(1, int(timeout_seconds)))
+                device.enumerate_processes()
+                result["ready"] = True
+            except Exception as exc:
+                result["reason"] = f"Frida emulator/server probe failed: {type(exc).__name__}."
+
+        worker = threading.Thread(target=probe, name="frida-readiness-probe", daemon=True)
+        worker.start()
+        worker.join(max(0.1, timeout_seconds))
+        if worker.is_alive():
+            return False, f"Frida emulator/server probe timed out after {timeout_seconds:g}s."
+        if result.get("ready"):
+            return True, "Frida Python dependency and emulator/server connectivity are ready."
+        return False, str(result.get("reason") or "Frida emulator/server connectivity is unavailable.")
 
     def process_raw_message(
         self,

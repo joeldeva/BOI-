@@ -63,13 +63,30 @@ export interface CapabilitiesResponse {
   };
   dynamic_lite: {
     enabled: boolean;
+    configured_enabled: boolean;
     adb_available: boolean;
-    emulator_serial_configured: boolean;
+    emulator_configured: boolean;
+    emulator_serial: string | null;
     safe_target_shape: boolean;
-    synthetic_markers?: { otp: string };
+    runtime_ready: boolean;
+    readiness: {
+      ready: boolean;
+      checks: JsonObject;
+      reasons: string[];
+      probe_timeout_seconds: number;
+    };
+    frida: JsonObject;
+    observers_enabled: JsonObject;
     network_policy?: JsonObject;
   };
-  llm: { provider: string; configured: boolean; controls_risk_score: false };
+  llm: {
+    provider: 'disabled' | 'openai' | 'gemini' | string;
+    configured: boolean;
+    ready: boolean;
+    model: string | null;
+    reason: string;
+    controls_risk_score: false;
+  };
   ai_experiments: {
     catalog_version: string;
     plan_limit: number;
@@ -206,7 +223,7 @@ export interface NormalizedEngineFinding {
 export interface EngineRun {
   id: string;
   label: string;
-  status: 'completed' | 'disabled' | 'unavailable' | 'failed' | 'blocked-by-policy';
+  status: 'completed' | 'disabled' | 'unavailable' | 'failed' | 'timeout' | 'blocked-by-policy';
   duration_ms: number;
   privacy: string;
   summary: JsonObject;
@@ -382,6 +399,30 @@ export interface DynamicExperimentResult {
   metadata: JsonObject;
 }
 
+export interface PayloadLineageStep {
+  step_index: number;
+  evidence_id: string;
+  phase: 'INGRESS' | 'TRANSFORMATION' | 'INTERNAL_STATE' | 'EGRESS' | string;
+  api: string;
+  transform_type: string;
+  matched_value: string;
+  description: string;
+}
+
+export interface PayloadLineage {
+  lineage_id: string;
+  marker_id: string;
+  marker_type: string;
+  marker_value: string;
+  evidence_chain: string[];
+  steps: PayloadLineageStep[];
+  source_evidence_id: string;
+  sink_evidence_id: string | null;
+  is_complete_exfiltration: boolean;
+  trust_level: string;
+  summary: string;
+}
+
 export interface RecoveredPayload {
   payload_id: string;
   parent_sample_sha256: string;
@@ -528,6 +569,7 @@ export interface ApkAnalysisResult {
   emitted_indicators: ThreatIndicatorRecord[];
   runtime_evidence: RuntimeEvidence[];
   experiment_results: DynamicExperimentResult[];
+  payload_lineage?: PayloadLineage[];
   recovered_payloads?: RecoveredPayload[];
   frauddna?: FraudDNAFingerprint;
   related_samples?: RelatedSample[];

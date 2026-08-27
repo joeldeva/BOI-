@@ -5,6 +5,7 @@ import type { ApkAnalysisRecord } from '../../types/api';
 interface InvestigationHeaderProps {
   analysis: ApkAnalysisRecord;
   onDownloadPdf: (id: string) => void;
+  pdfDownloading?: boolean;
 }
 
 function verdictLabel(a: ApkAnalysisRecord): string {
@@ -21,7 +22,7 @@ function formatDate(iso: string | null): string {
   });
 }
 
-export function InvestigationHeader({ analysis, onDownloadPdf }: InvestigationHeaderProps) {
+export function InvestigationHeader({ analysis, onDownloadPdf, pdfDownloading = false }: InvestigationHeaderProps) {
   const result = analysis.result;
   const ext = result?.extraction;
   const risk = result?.risk;
@@ -55,9 +56,10 @@ export function InvestigationHeader({ analysis, onDownloadPdf }: InvestigationHe
               onClick={() => onDownloadPdf(analysis.id)}
               type="button"
               id="download-report-pdf"
+              disabled={pdfDownloading}
             >
               <Download size={12} style={{ display: 'inline', marginRight: 4 }} />
-              PDF report
+              {pdfDownloading ? 'Preparing PDF...' : 'PDF report'}
             </button>
           </div>
 

@@ -368,7 +368,10 @@ def test_virustotal_hash_only(settings: Settings) -> None:
 # ---------------------------------------------------------------------------
 def test_malwarebazaar_hash_only(settings: Settings) -> None:
     """MalwareBazaar adapter transmits only SHA-256 and extracts threat metadata."""
-    mb_settings = settings.with_overrides(reputation_enabled=True)
+    mb_settings = settings.with_overrides(
+        reputation_enabled=True,
+        malwarebazaar_api_key="test-auth-key",
+    )
     adapter = MalwareBazaarHashAdapter()
 
     fake_response = MagicMock()
@@ -387,6 +390,7 @@ def test_malwarebazaar_hash_only(settings: Settings) -> None:
         result = adapter.lookup("deadbeef" * 8, mb_settings)
 
     mock_post.assert_called_once()
+    assert mock_post.call_args.kwargs["headers"] == {"Auth-Key": "test-auth-key"}
     assert result["status"] == "found"
     assert result["signature"] == "SpyNote"
     assert "banking-trojan" in result["tags"]
@@ -510,4 +514,69 @@ def test_run_guarded_timeout_isolation(settings: Settings, tmp_path: Path) -> No
     assert status["status"] == "timeout"
     assert "timed out" in status["error"]
     assert findings == []
+
+
+def test_no_successful_reputation_provider_is_unavailable(settings: Settings) -> None:
+    analyzer = MultiEngineAnalyzer(
+        settings.with_overrides(
+            reputation_enabled=True,
+            malwarebazaar_api_key="test-auth-key",
+        )
+    )
+    analyzer._coordinator.vt_adapter.is_available = MagicMock(return_value=False)
+    analyzer._coordinator.mb_adapter.lookup = MagicMock(side_effect=RuntimeError("offline"))
+
+    reputation, statuses = analyzer._coordinator._run_reputation("a" * 64)
+
+    assert reputation["verdict"] == "unavailable"
+    assert reputation["known_malicious"] is False
+    assert reputation["providers"] == []
+    assert not any(status["status"] == "completed" for status in statuses)
+
+
+def test_successful_reputation_miss_is_not_found(settings: Settings) -> None:
+    analyzer = MultiEngineAnalyzer(
+        settings.with_overrides(
+            reputation_enabled=True,
+            malwarebazaar_api_key="test-auth-key",
+        )
+    )
+    analyzer._coordinator.vt_adapter.is_available = MagicMock(return_value=False)
+    analyzer._coordinator.mb_adapter.lookup = MagicMock(
+        return_value={"id": "malwarebazaar", "status": "not-found"}
+    )
+
+    reputation, _ = analyzer._coordinator._run_reputation("b" * 64)
+
+    assert reputation["verdict"] == "not-found"
+    assert len(reputation["providers"]) == 1
+
+
+def test_malwarebazaar_without_auth_key_is_unavailable(settings: Settings) -> None:
+    analyzer = MultiEngineAnalyzer(settings.with_overrides(reputation_enabled=True))
+
+    reputation, statuses = analyzer._coordinator._run_reputation("d" * 64)
+
+    malwarebazaar = next(status for status in statuses if status["id"] == "malwarebazaar")
+    assert malwarebazaar["status"] == "unavailable"
+    assert reputation["verdict"] == "unavailable"
+    capability = next(
+        item for item in analyzer.capabilities()["engines"] if item["id"] == "malwarebazaar"
+    )
+    assert capability["available"] is False
+
+
+def test_engine_timeout_counts_as_coverage_gap(settings: Settings, tmp_path: Path) -> None:
+    analyzer = MultiEngineAnalyzer(settings)
+    analyzer._coordinator.run_all = MagicMock(
+        return_value=(
+            [{"id": "slow", "status": "timeout", "summary": {}}],
+            [],
+            {"verdict": "not-queried", "known_malicious": False, "providers": []},
+        )
+    )
+
+    result = analyzer.analyze(tmp_path / "unused.apk", sha256="c" * 64, extraction={})
+
+    assert result["summary"]["unavailable_or_failed"] == 1
 

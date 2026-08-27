@@ -5,7 +5,6 @@ import { FraudSearchHero } from './components/home/FraudSearchHero';
 import { RecentInvestigationsTable } from './components/home/RecentInvestigationsTable';
 import { ApkUploadPanel } from './components/home/ApkUploadPanel';
 import { InvestigationReportPage } from './components/report/InvestigationReportPage';
-import { SearchPage } from './components/search/SearchPage';
 import { CampaignPage } from './components/campaigns/CampaignPage';
 import {
   apiService,
@@ -138,7 +137,7 @@ export default function App() {
     if (matched) {
       void handleOpenReport(matched.id);
     } else {
-      setPage('search');
+      setGlobalError('No matching stored analysis was found in the current investigation list.');
     }
   };
 
@@ -182,8 +181,6 @@ export default function App() {
           />
         </main>
       )}
-
-      {page === 'search' && <SearchPage />}
 
       {page === 'campaigns' && (
         <CampaignPage

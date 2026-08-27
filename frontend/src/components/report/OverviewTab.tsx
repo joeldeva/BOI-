@@ -1,4 +1,5 @@
 import type { ApkAnalysisResult } from '../../types/api';
+import { aggregateExperimentStatus } from '../../utils/analysisTruth.mjs';
 import { StatusPillAuto } from '../common/StatusPill';
 
 interface OverviewTabProps { result: ApkAnalysisResult; }
@@ -16,6 +17,7 @@ export function OverviewTab({ result }: OverviewTabProps) {
   const risk = result.risk;
   const imp = result.brand_impersonation;
   const bi = result.banking_impact;
+  const dynamicStatus = aggregateExperimentStatus(result.experiment_results ?? []).status;
 
   return (
     <div>
@@ -82,7 +84,7 @@ export function OverviewTab({ result }: OverviewTabProps) {
                 <tr><td>Final risk</td><td><strong>{risk.overall_score} / 100</strong>{' '}<StatusPillAuto value={risk.severity} /></td></tr>
                 <tr><td>Confidence</td><td>{((risk.confidence ?? 0) * 100).toFixed(0)}%</td></tr>
                 <tr><td>Analysis quality</td><td>{result.extraction.analysis_quality ?? '—'}</td></tr>
-                <tr><td>Dynamic status</td><td><StatusPillAuto value={result.experiment_results.length > 0 ? 'COMPLETED' : 'UNAVAILABLE'} /></td></tr>
+                <tr><td>Dynamic status</td><td><StatusPillAuto value={dynamicStatus} /></td></tr>
               </tbody>
             </table>
           </div>

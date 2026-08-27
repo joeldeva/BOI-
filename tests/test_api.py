@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
+
+from fraudshield.main import create_app
+
 
 def test_health_and_capabilities(client) -> None:
     response = client.get("/health")
@@ -12,6 +16,17 @@ def test_health_and_capabilities(client) -> None:
     capabilities = client.get("/api/v1/system/capabilities").json()
     assert capabilities["apk_only_product"] is True
     assert capabilities["llm"]["controls_risk_score"] is False
+    assert capabilities["llm"] == {
+        "provider": "disabled",
+        "configured": False,
+        "ready": False,
+        "model": None,
+        "reason": "AI investigator is disabled by configuration.",
+        "controls_risk_score": False,
+    }
+    assert capabilities["dynamic_lite"]["runtime_ready"] is False
+    assert capabilities["dynamic_lite"]["emulator_configured"] is False
+    assert capabilities["dynamic_lite"]["readiness"]["reasons"]
     assert capabilities["ai_experiments"]["plan_limit"] == 3
     assert capabilities["ai_experiments"]["execution_mode"] == "planned-only"
     assert {item["experiment_type"] for item in capabilities["ai_experiments"]["catalog"]} >= {
@@ -30,6 +45,25 @@ def test_health_and_capabilities(client) -> None:
         "virustotal",
         "malwarebazaar",
     }
+
+
+def test_ai_capability_reports_missing_configuration_without_exposing_key(settings) -> None:
+    configured = settings.with_overrides(
+        llm_provider="openai",
+        llm_api_key="",
+        llm_model="",
+    )
+    with TestClient(create_app(configured)) as test_client:
+        response = test_client.get("/api/v1/system/capabilities")
+
+    assert response.status_code == 200
+    llm = response.json()["llm"]
+    assert llm["provider"] == "openai"
+    assert llm["configured"] is False
+    assert llm["ready"] is False
+    assert "API key and model are missing" in llm["reason"]
+    assert "api_key" not in llm
+    assert "llm_api_key" not in response.text
 
 
 def test_invalid_apk_returns_validation_error(client) -> None:

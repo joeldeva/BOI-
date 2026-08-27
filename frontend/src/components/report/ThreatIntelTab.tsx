@@ -1,4 +1,5 @@
 import type { ApkAnalysisResult } from '../../types/api';
+import { knownMaliciousLabel } from '../../utils/analysisTruth.mjs';
 import { StatusPillAuto } from '../common/StatusPill';
 import { EmptyState } from '../common/Atoms';
 
@@ -72,7 +73,7 @@ export function ThreatIntelTab({ result }: ThreatIntelTabProps) {
             <table className="kv-table">
               <tbody>
                 <tr><td>Verdict</td><td><StatusPillAuto value={rep.verdict} /></td></tr>
-                <tr><td>Known malicious</td><td>{rep.known_malicious ? 'Yes' : 'No'}</td></tr>
+                <tr><td>Known malicious</td><td>{knownMaliciousLabel(rep)}</td></tr>
                 <tr><td>Providers consulted</td><td>{rep.providers ? rep.providers.length : 0}</td></tr>
               </tbody>
             </table>

@@ -11,6 +11,7 @@ from fraudshield.core.errors import ConfigurationError
 from fraudshield.deceptiscope.dynamic import DynamicLiteAnalyzer
 from fraudshield.deceptiscope.experiments import ExperimentType
 from fraudshield.deceptiscope.lineage.markers import SyntheticMarkerManager
+from fraudshield.deceptiscope.runtime.runtime_models import RuntimeObserverStatus
 
 
 PACKAGE = "com.example.demobank"
@@ -31,6 +32,12 @@ class FakeDynamicAnalyzer(DynamicLiteAnalyzer):
         self.fail = fail or {}
         self.calls: list[tuple[str, ...]] = []
         self._snapshot_count = 0
+        self.frida_host.status = lambda **kwargs: {
+            "configured_enabled": True,
+            "host_dependency_available": True,
+            "frida_installed": True,
+        }
+        self.frida_host.observation_session = lambda package_name, observers: _ReadyFridaSession()
 
     def _run(self, *args: str, timeout: int | None = None) -> str:
         key = tuple(args)
@@ -69,6 +76,21 @@ class FakeDynamicAnalyzer(DynamicLiteAnalyzer):
         if key[:2] == ("shell", "rm"):
             return ""
         raise RuntimeError(f"unexpected fake adb call: {key}")
+
+
+class _ReadyFridaSession:
+    status = RuntimeObserverStatus.COMPLETED
+    events: list[Any] = []
+    warnings: list[str] = []
+    spawned_pid = None
+    attached_existing = True
+    started_target = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        return None
 
 
 @pytest.fixture()
@@ -161,9 +183,16 @@ def test_dynamic_cleanup_after_launch_failure(dynamic_settings, tmp_path: Path, 
         dynamic_settings,
         fail={("shell", "monkey", "-p", PACKAGE, "-c", "android.intent.category.LAUNCHER", "1"): RuntimeError("boom")},
     )
+    analyzer.frida_host.observation_session = lambda package_name, observers: _FailedFridaSession()
     result = analyzer.observe(apk, PACKAGE, [ExperimentType.LAUNCH_APP])
     assert result["experiment_results"][0]["status"] == "FAILED"
     assert ("uninstall", PACKAGE) in analyzer.calls
+
+
+class _FailedFridaSession(_ReadyFridaSession):
+    status = RuntimeObserverStatus.FAILED
+    warnings = ["Synthetic Frida startup failure"]
+    attached_existing = False
 
 
 def test_unsupported_collector_returns_unavailable(dynamic_settings, tmp_path: Path, monkeypatch) -> None:

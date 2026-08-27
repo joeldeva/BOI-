@@ -19,6 +19,7 @@ from fraudshield.core.config import Settings
 from fraudshield.core.errors import FraudShieldError
 from fraudshield.core.logging import configure_logging
 from fraudshield.core.metrics import Metrics
+from fraudshield.deceptiscope.investigation import llm_capability_status
 from fraudshield.services.container import ServiceContainer
 
 
@@ -75,8 +76,11 @@ def _should_audit(path: str) -> bool:
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or Settings.from_env()
     resolved.ensure_directories()
-    resolved.validate()
     configure_logging(resolved.debug)
+    llm_status = llm_capability_status(resolved)
+    if resolved.llm_provider != "disabled" and not llm_status["ready"]:
+        logger.warning("AI investigator unavailable at startup: %s", llm_status["reason"])
+    resolved.validate()
     services = ServiceContainer.build(resolved)
     metrics = Metrics(resolved.metrics_enabled)
 

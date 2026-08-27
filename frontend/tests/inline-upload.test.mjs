@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isRuntimeReady } from '../src/utils/analysisTruth.mjs';
 
 test('TEST A — INLINE DEVELOPMENT MODE: uses POST /api/v1/apk-analyses when inline_analysis is true', () => {
   const capabilities = { inline_analysis: true };
@@ -108,17 +109,11 @@ test('TEST F — DYNAMIC UNAVAILABLE: dynamic checkbox remains unavailable when 
   const capabilities = {
     inline_analysis: true,
     dynamic_lite: {
-      enabled: false,
-      adb_available: false,
-      emulator_serial_configured: false,
+      runtime_ready: false,
     },
   };
 
-  const isDynamicAvailable = Boolean(
-    capabilities.dynamic_lite?.enabled &&
-    capabilities.dynamic_lite?.adb_available &&
-    capabilities.dynamic_lite?.emulator_serial_configured
-  );
+  const isDynamicAvailable = isRuntimeReady(capabilities);
 
   assert.equal(isDynamicAvailable, false);
   assert.equal(capabilities.inline_analysis, true);
