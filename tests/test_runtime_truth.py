@@ -136,6 +136,38 @@ def test_frida_before_experiment() -> None:
     )
 
 
+def test_synthetic_sms_action_is_blocked_when_instrumentation_is_unavailable() -> None:
+    settings = Settings(dynamic_analysis_enabled=True, adb_emulator_serial="emulator-5554")
+    analyzer = DynamicLiteAnalyzer(settings)
+    analyzer.frida_host.status = MagicMock(
+        return_value={
+            "configured_enabled": True,
+            "host_dependency_available": False,
+            "frida_installed": False,
+            "reason": "Frida Python dependency is not installed.",
+        }
+    )
+    analyzer._collect = MagicMock()
+    state = {
+        "package_name": "com.target.bank",
+        "launched": False,
+        "active_marker": "DS-TEST-OTP-444444",
+    }
+    builder = _RuntimeEvidenceBuilder("com.target.bank", time.monotonic())
+
+    result = analyzer._execute_experiment(
+        experiment_id="DYN001",
+        experiment_type=ExperimentType.SYNTHETIC_SMS,
+        state=state,
+        builder=builder,
+    )
+
+    assert result.status == ExperimentStatus.UNAVAILABLE
+    assert "action was not executed" in result.summary
+    assert "synthetic_otp_marker" not in result.metadata
+    analyzer._collect.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Test 3: Instrumented URL Marker Is NOT Payload Proof
 # ---------------------------------------------------------------------------
@@ -1004,6 +1036,7 @@ class _PipelineFakeDynamic:
             "enabled": True,
             "adb_available": True,
             "safe_target_shape": True,
+            "runtime_ready": True,
         }
 
     def observe(self, *args, **kwargs) -> dict[str, object]:

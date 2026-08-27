@@ -414,10 +414,6 @@ class Settings:
             raise RuntimeError("FRAUDSHIELD_FORWARDED_ALLOW_IPS cannot be '*' in production")
         if self.llm_provider not in {"disabled", "openai", "gemini"}:
             raise RuntimeError("FRAUDSHIELD_LLM_PROVIDER must be disabled, openai, or gemini")
-        if self.llm_provider != "disabled" and (not self.llm_api_key or not self.llm_model):
-            raise RuntimeError(
-                "FRAUDSHIELD_LLM_API_KEY and FRAUDSHIELD_LLM_MODEL are required when LLM is enabled"
-            )
         if (
             self.environment == "production"
             and self.llm_provider != "disabled"

@@ -1,4 +1,5 @@
 import type { ApkAnalysisResult } from '../../types/api';
+import { isRuntimeNetworkEvidence } from '../../utils/analysisTruth.mjs';
 import { StatusPillAuto } from '../common/StatusPill';
 import { EmptyState } from '../common/Atoms';
 
@@ -8,7 +9,7 @@ export function NetworkAnalysisTab({ result }: NetworkAnalysisTabProps) {
   const ni = result.extraction.network_indicators;
   const firebase = result.firebase_infrastructure;
   const runtime = result.runtime_evidence ?? [];
-  const networkEvidence = runtime.filter(e => e.evidence_type === 'network' || e.evidence_type?.toLowerCase().includes('http') || e.evidence_type?.toLowerCase().includes('request'));
+  const networkEvidence = runtime.filter(isRuntimeNetworkEvidence);
   const hasPayloadCorrelated = runtime.some(e => e.trust_level === 'PAYLOAD_CORRELATED');
   const hasAnyNetworkData = ni.domains.length || ni.ips.length || ni.urls.length || networkEvidence.length;
 
@@ -81,7 +82,7 @@ export function NetworkAnalysisTab({ result }: NetworkAnalysisTabProps) {
 
       {networkEvidence.length > 0 && (
         <>
-          <h3 className="subsection-title">HTTP observations</h3>
+          <h3 className="subsection-title">Runtime network observations</h3>
           <div className="card padded">
             {networkEvidence.map((ev, i) => (
               <div key={i} style={{ padding: '8px 0', borderBottom: i < networkEvidence.length - 1 ? '1px solid var(--line)' : undefined }}>

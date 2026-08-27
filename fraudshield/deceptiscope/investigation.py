@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 import re
@@ -23,6 +24,45 @@ from fraudshield.deceptiscope.verifier import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def llm_capability_status(settings: Settings) -> dict[str, Any]:
+    """Return non-secret provider configuration and local readiness diagnostics."""
+    provider = settings.llm_provider
+    enabled = provider != "disabled"
+    supported = provider in {"openai", "gemini"}
+    key_configured = bool(settings.llm_api_key.strip())
+    model_configured = bool(settings.llm_model.strip())
+    configured = enabled and supported and key_configured and model_configured
+    dependency_available = provider != "openai" or importlib.util.find_spec("openai") is not None
+    production_allowed = settings.environment != "production" or settings.allow_external_llm_in_production
+    ready = configured and dependency_available and production_allowed
+
+    if not enabled:
+        reason = "AI investigator is disabled by configuration."
+    elif not supported:
+        reason = "Configured AI provider is unsupported; use openai or gemini."
+    elif not key_configured and not model_configured:
+        reason = "AI provider is enabled but API key and model are missing."
+    elif not key_configured:
+        reason = "AI provider is enabled but API key is missing."
+    elif not model_configured:
+        reason = "AI provider is enabled but model is missing."
+    elif not dependency_available:
+        reason = "OpenAI Python dependency is unavailable."
+    elif not production_allowed:
+        reason = "External AI use is not approved for this production configuration."
+    else:
+        reason = "AI investigator configuration is ready."
+
+    return {
+        "provider": provider,
+        "configured": configured,
+        "ready": ready,
+        "model": settings.llm_model or None,
+        "reason": reason,
+        "controls_risk_score": False,
+    }
 
 EVIDENCE_ID_RE = re.compile(r"^E\d{3}$")
 MAX_EVIDENCE_ITEMS = 120
@@ -494,6 +534,16 @@ class AIInvestigatorClient:
                 [],
                 [],
                 "AI investigator disabled; normalized evidence IDs were still generated.",
+            )
+        capability = llm_capability_status(self.settings)
+        if not capability["configured"]:
+            return (
+                InvestigationStatus.UNAVAILABLE,
+                evidence,
+                [],
+                [],
+                [],
+                str(capability["reason"]),
             )
         try:
             prompt_payload = self._prompt_payload(findings, evidence, self.settings)

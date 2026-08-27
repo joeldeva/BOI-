@@ -1,7 +1,8 @@
-import { Shield, Home, Search, FileText, Dna, Info } from 'lucide-react';
+import { Shield, Home, FileText, Dna, Info } from 'lucide-react';
 import type { CapabilitiesResponse } from '../../types/api';
+import { isRuntimeReady } from '../../utils/analysisTruth.mjs';
 
-export type AppPage = 'home' | 'search' | 'investigations' | 'campaigns' | 'report';
+export type AppPage = 'home' | 'investigations' | 'campaigns' | 'report';
 
 interface TopNavigationProps {
   page: AppPage;
@@ -11,8 +12,7 @@ interface TopNavigationProps {
 
 function getRuntimeStatus(capabilities: CapabilitiesResponse | null) {
   if (capabilities === null) return { label: '…', ready: false, loading: true };
-  const dl = capabilities.dynamic_lite;
-  const ready = dl.enabled && dl.adb_available && dl.emulator_serial_configured;
+  const ready = isRuntimeReady(capabilities);
   return {
     label: ready ? 'Runtime ready' : 'Runtime unavailable',
     ready,
@@ -22,7 +22,6 @@ function getRuntimeStatus(capabilities: CapabilitiesResponse | null) {
 
 const navItems: { id: AppPage; label: string; icon: typeof Home }[] = [
   { id: 'home',           label: 'Home',           icon: Home },
-  { id: 'search',         label: 'Search',          icon: Search },
   { id: 'investigations', label: 'Investigations',  icon: FileText },
   { id: 'campaigns',      label: 'Campaigns',       icon: Dna },
 ];

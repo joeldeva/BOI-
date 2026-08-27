@@ -12,18 +12,39 @@ import { BehaviorAnalysisTab } from './BehaviorAnalysisTab';
 import { NetworkAnalysisTab } from './NetworkAnalysisTab';
 import { FraudDnaTab } from './FraudDnaTab';
 import { LoadingState } from '../common/Atoms';
+import { ErrorBanner } from '../common/ErrorBanner';
+import { apiService } from '../../services/api';
 
 interface InvestigationReportPageProps {
   analysis: ApkAnalysisRecord;
   onBack: () => void;
 }
 
-function downloadPdfStub(id: string) {
-  console.info('PDF download requested for analysis', id);
-}
-
 export function InvestigationReportPage({ analysis, onBack }: InvestigationReportPageProps) {
   const [tab, setTab] = useState<ReportTab>('overview');
+  const [pdfError, setPdfError] = useState<Error | string | null>(null);
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+
+  const handleDownloadPdf = async (id: string) => {
+    setPdfError(null);
+    setPdfDownloading(true);
+    try {
+      const blob = await apiService.downloadApkReportPdf(id);
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const baseName = analysis.file_name.replace(/\.apk$/i, '').replace(/[^A-Za-z0-9._-]+/g, '-');
+      link.href = blobUrl;
+      link.download = `${baseName || id}-investigation-report.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
+    } catch (error) {
+      setPdfError(error instanceof Error ? error : 'PDF report download failed.');
+    } finally {
+      setPdfDownloading(false);
+    }
+  };
 
   const handleTabChange = (t: ReportTab) => {
     setTab(t);
@@ -42,7 +63,16 @@ export function InvestigationReportPage({ analysis, onBack }: InvestigationRepor
         </div>
       </div>
 
-      <InvestigationHeader analysis={analysis} onDownloadPdf={downloadPdfStub} />
+      <InvestigationHeader
+        analysis={analysis}
+        onDownloadPdf={handleDownloadPdf}
+        pdfDownloading={pdfDownloading}
+      />
+      {pdfError && (
+        <div style={{ width: 'min(1040px, calc(100% - 32px))', margin: '14px auto 0' }}>
+          <ErrorBanner error={pdfError} onDismiss={() => setPdfError(null)} />
+        </div>
+      )}
       <ReportTabBar active={tab} onChange={handleTabChange} />
 
       <div

@@ -724,14 +724,11 @@ class MalwareBazaarHashAdapter:
         return settings.reputation_enabled
 
     def is_available(self, settings: Settings) -> bool:
-        return True  # MalwareBazaar is publicly accessible
+        return bool(settings.malwarebazaar_api_key)
 
     def lookup(self, sha256: str, settings: Settings) -> dict[str, Any]:
         """SHA-256 only lookup — no binary upload ever occurs."""
-        headers = (
-            {"Auth-Key": settings.malwarebazaar_api_key}
-            if settings.malwarebazaar_api_key else {}
-        )
+        headers = {"Auth-Key": settings.malwarebazaar_api_key}
         with httpx.Client(timeout=settings.external_lookup_timeout_seconds) as client:
             response = client.post(
                 "https://mb-api.abuse.ch/api/v1/",
@@ -787,7 +784,7 @@ class EngineCoordinator:
         sha256: str,
         extraction: dict[str, Any],
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        """Execute an adapter with timing and failure isolation."""
+        """Report a bounded wait for an adapter; Python worker threads are not forcibly cancelled."""
         started = time.perf_counter()
         timeout_seconds = max(1, int(self.settings.engine_timeout_seconds))
         try:
@@ -961,34 +958,53 @@ class EngineCoordinator:
             ))
 
         # MalwareBazaar
-        started = time.perf_counter()
-        try:
-            provider = self.mb_adapter.lookup(sha256, self.settings)
-            providers.append(provider)
+        if self.mb_adapter.is_available(self.settings):
+            started = time.perf_counter()
+            try:
+                provider = self.mb_adapter.lookup(sha256, self.settings)
+                providers.append(provider)
+                statuses.append(_engine_status(
+                    "malwarebazaar", "MalwareBazaar hash reputation", "completed",
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                    summary=provider, privacy="hash-only-external",
+                ))
+            except Exception as exc:
+                logger.warning("MalwareBazaar hash lookup failed: %s", type(exc).__name__)
+                statuses.append(_engine_status(
+                    "malwarebazaar", "MalwareBazaar hash reputation", "failed",
+                    duration_ms=(time.perf_counter() - started) * 1000,
+                    error=f"{type(exc).__name__}: lookup did not complete; inspect restricted worker logs",
+                    privacy="hash-only-external",
+                ))
+        else:
             statuses.append(_engine_status(
-                "malwarebazaar", "MalwareBazaar hash reputation", "completed",
-                duration_ms=(time.perf_counter() - started) * 1000,
-                summary=provider, privacy="hash-only-external",
-            ))
-        except Exception as exc:
-            logger.warning("MalwareBazaar hash lookup failed: %s", type(exc).__name__)
-            statuses.append(_engine_status(
-                "malwarebazaar", "MalwareBazaar hash reputation", "failed",
-                duration_ms=(time.perf_counter() - started) * 1000,
-                error=f"{type(exc).__name__}: lookup did not complete; inspect restricted worker logs",
-                privacy="hash-only-external",
+                "malwarebazaar", "MalwareBazaar hash reputation", "unavailable",
+                duration_ms=0, error="API key is not configured", privacy="hash-only-external",
             ))
 
         vt_malicious = next((int(p.get("malicious", 0)) for p in providers if p["id"] == "virustotal"), 0)
         mb_found = any(p["id"] == "malwarebazaar" and p.get("status") == "found" for p in providers)
         known_malicious = mb_found or vt_malicious >= self.settings.virustotal_malicious_threshold
         found_any = any(p.get("status") == "found" for p in providers)
+        successful_provider = bool(providers)
 
         reputation = {
-            "verdict": "known-malicious" if known_malicious else "known-file" if found_any else "not-found",
+            "verdict": (
+                "unavailable"
+                if not successful_provider
+                else "known-malicious"
+                if known_malicious
+                else "known-file"
+                if found_any
+                else "not-found"
+            ),
             "known_malicious": known_malicious,
             "providers": providers,
-            "notice": "Only the SHA-256 was transmitted. A not-found or zero-detection result is not proof of legitimacy.",
+            "notice": (
+                "No reputation provider completed successfully; reputation was not evaluated."
+                if not successful_provider
+                else "Only the SHA-256 was transmitted. A not-found or zero-detection result is not proof of legitimacy."
+            ),
         }
         return reputation, statuses
 
@@ -1022,7 +1038,7 @@ class MultiEngineAnalyzer:
             {"id": "quark", "label": "Quark behavior rules", "enabled": self.settings.quark_enabled, "available": self._coordinator.local_adapters[4].is_available(self.settings) if len(self._coordinator.local_adapters) > 4 else False, "mode": "local-static"},
             {"id": "mobsf", "label": "Self-hosted MobSF", "enabled": self.settings.mobsf_enabled, "available": bool(self.settings.mobsf_url and self.settings.mobsf_api_key), "mode": "configured-private-service"},
             {"id": "virustotal", "label": "VirusTotal hash reputation", "enabled": self.settings.reputation_enabled, "available": bool(self.settings.virustotal_api_key), "mode": "hash-only-external"},
-            {"id": "malwarebazaar", "label": "MalwareBazaar hash reputation", "enabled": self.settings.reputation_enabled, "available": True, "mode": "hash-only-external"},
+            {"id": "malwarebazaar", "label": "MalwareBazaar hash reputation", "enabled": self.settings.reputation_enabled, "available": bool(self.settings.malwarebazaar_api_key), "mode": "hash-only-external"},
         ]
         return {
             "orchestrator_version": self.version,
@@ -1040,7 +1056,10 @@ class MultiEngineAnalyzer:
 
         deduplicated = self._deduplicate_findings(findings)
         completed = sum(e["status"] == "completed" for e in engines)
-        unavailable = sum(e["status"] in {"unavailable", "failed", "blocked-by-policy"} for e in engines)
+        unavailable = sum(
+            e["status"] in {"unavailable", "failed", "timeout", "blocked-by-policy"}
+            for e in engines
+        )
 
         native_engine = next((e for e in engines if e["id"] == "archive_native"), {})
         tracker_count = len(native_engine.get("summary", {}).get("trackers", []))

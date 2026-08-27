@@ -1,6 +1,7 @@
 import type { ApkAnalysisRecord } from '../../types/api';
 import { StatusPillAuto } from '../common/StatusPill';
 import { LoadingState, EmptyState } from '../common/Atoms';
+import { severityFromScore } from '../../utils/analysisTruth.mjs';
 
 interface RecentInvestigationsTableProps {
   analyses: ApkAnalysisRecord[];
@@ -22,10 +23,7 @@ function riskLabel(a: ApkAnalysisRecord): string {
   if (a.severity) return a.severity;
   const s = a.overall_score;
   if (s === null) return a.status.toUpperCase();
-  if (s >= 75) return 'CRITICAL';
-  if (s >= 55) return 'HIGH';
-  if (s >= 30) return 'MEDIUM';
-  return 'LOW';
+  return severityFromScore(s);
 }
 
 export function RecentInvestigationsTable({ analyses, loading, onOpen }: RecentInvestigationsTableProps) {

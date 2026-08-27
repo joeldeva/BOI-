@@ -12,7 +12,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from fraudshield.core.config import Settings
 from fraudshield.core.errors import ConfigurationError, ValidationError
-from fraudshield.deceptiscope.experiments import ExperimentStatus, ExperimentType
+from fraudshield.deceptiscope.experiments import (
+    FRIDA_DEPENDENT_EXPERIMENTS,
+    ExperimentStatus,
+    ExperimentType,
+)
 from fraudshield.deceptiscope.runtime.frida_host import FridaHost
 from fraudshield.deceptiscope.runtime.runtime_models import EvidenceTrustLevel
 from fraudshield.deceptiscope.runtime.runtime_models import RuntimeObserverStatus
@@ -129,13 +133,40 @@ class DynamicLiteAnalyzer:
 
     def status(self) -> dict[str, Any]:
         serial = self.settings.adb_emulator_serial
-        adb_available = bool(shutil.which(self.settings.adb_path))
-        frida_st = self.frida_host.status()
-
         configured_enabled = self.settings.dynamic_analysis_enabled
-        host_dependency_available = adb_available and frida_st.get("host_dependency_available", False)
+        adb_executable = shutil.which(self.settings.adb_path)
+        adb_available = bool(adb_executable)
         emulator_configured = bool(serial)
         safe_target_shape = serial.startswith("emulator-") if serial else False
+        adb_device_reachable: bool | None = None
+        emulator_verified: bool | None = None
+
+        if configured_enabled and adb_available and safe_target_shape:
+            adb_device_reachable = (
+                self._probe_adb_value(adb_executable or self.settings.adb_path, serial, "get-state") == "device"
+            )
+            if adb_device_reachable:
+                emulator_verified = (
+                    self._probe_adb_value(
+                        adb_executable or self.settings.adb_path,
+                        serial,
+                        "shell",
+                        "getprop",
+                        "ro.kernel.qemu",
+                    )
+                    == "1"
+                )
+
+        should_probe_frida = bool(
+            configured_enabled
+            and adb_available
+            and safe_target_shape
+            and adb_device_reachable
+            and emulator_verified
+            and self.settings.frida_runtime_enabled
+        )
+        frida_st = self.frida_host.status(probe_connectivity=should_probe_frida)
+        host_dependency_available = adb_available and frida_st.get("host_dependency_available", False)
 
         observers_enabled = {
             "sms": self.settings.sms_observer_enabled,
@@ -150,8 +181,26 @@ class DynamicLiteAnalyzer:
             and adb_available
             and emulator_configured
             and safe_target_shape
+            and adb_device_reachable is True
+            and emulator_verified is True
             and (not self.settings.frida_runtime_enabled or frida_st.get("runtime_ready", False))
         )
+
+        checks = {
+            "dynamic_analysis_enabled": configured_enabled,
+            "adb_executable": adb_available,
+            "emulator_serial_configured": emulator_configured,
+            "safe_emulator_serial": safe_target_shape,
+            "adb_device_reachable": adb_device_reachable,
+            "emulator_verified": emulator_verified,
+            "frida_dependency_available": (
+                frida_st.get("host_dependency_available") if self.settings.frida_runtime_enabled else None
+            ),
+            "frida_server_reachable": (
+                frida_st.get("server_reachable") if self.settings.frida_runtime_enabled else None
+            ),
+        }
+        reasons = self._readiness_reasons(checks, frida_st)
 
         return {
             "enabled": configured_enabled,
@@ -165,12 +214,50 @@ class DynamicLiteAnalyzer:
             "frida_installed": frida_st.get("frida_installed", False),
             "observers_enabled": observers_enabled,
             "runtime_ready": runtime_ready,
+            "readiness": {
+                "ready": runtime_ready,
+                "checks": checks,
+                "reasons": reasons,
+                "probe_timeout_seconds": 3,
+            },
             "network_policy": {
                 "mode": self.settings.dynamic_network_policy,
                 "llm_supplied_targets": False,
                 "backend_injected_credentials": False,
             },
         }
+
+    @staticmethod
+    def _readiness_reasons(checks: dict[str, bool | None], frida_status: dict[str, Any]) -> list[str]:
+        messages = {
+            "dynamic_analysis_enabled": "Dynamic analysis is disabled by configuration.",
+            "adb_executable": "ADB executable is unavailable.",
+            "emulator_serial_configured": "No ADB emulator serial is configured.",
+            "safe_emulator_serial": "Configured ADB serial must use the emulator-* form.",
+            "adb_device_reachable": "Configured emulator is not reachable through ADB.",
+            "emulator_verified": "ADB target did not verify ro.kernel.qemu == 1.",
+            "frida_dependency_available": "Frida Python dependency is unavailable.",
+            "frida_server_reachable": str(
+                frida_status.get("reason") or "Frida emulator/server connectivity is unavailable."
+            ),
+        }
+        reasons = [messages[name] for name, value in checks.items() if value is False]
+        return reasons or ["All configured runtime readiness checks passed."]
+
+    @staticmethod
+    def _probe_adb_value(adb_executable: str, serial: str, *args: str) -> str:
+        try:
+            completed = subprocess.run(
+                [adb_executable, "-s", serial, *args],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+                shell=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        return completed.stdout.strip() if completed.returncode == 0 else ""
 
     def observe(
         self,
@@ -301,9 +388,15 @@ class DynamicLiteAnalyzer:
 
         obs_names = self.frida_host.registry.get_observers_for_experiments([experiment_type])
         frida_status = self.frida_host.status()
-        frida_requested = bool(obs_names)
-        frida_available = bool(frida_requested and frida_status.get("frida_installed"))
+        frida_requested = experiment_type in FRIDA_DEPENDENT_EXPERIMENTS
+        frida_available = bool(
+            frida_requested
+            and obs_names
+            and frida_status.get("configured_enabled", self.settings.frida_runtime_enabled)
+            and frida_status.get("host_dependency_available", frida_status.get("frida_installed"))
+        )
         instrumentation: dict[str, Any] | None = None
+        action_executed = False
 
         try:
             if frida_available:
@@ -314,23 +407,43 @@ class DynamicLiteAnalyzer:
                         state["_current_frida_session"] = instrumentation
                         if instrumentation.get("started_target") or instrumentation.get("attached_existing"):
                             state["launched"] = True
-                    try:
-                        status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
-                        if session_status == RuntimeObserverStatus.COMPLETED:
+                        try:
+                            action_executed = True
+                            status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
                             self._sleep_observer_grace(started, builder)
-                    finally:
-                        state.pop("_current_frida_session", None)
-                    if session_status == RuntimeObserverStatus.COMPLETED and session.events:
-                        self.frida_host.normalize_to_evidence(session.events, builder)
+                        finally:
+                            state.pop("_current_frida_session", None)
+                        if session.events:
+                            self.frida_host.normalize_to_evidence(session.events, builder)
+                    else:
+                        status = (
+                            ExperimentStatus.FAILED
+                            if session_status == RuntimeObserverStatus.FAILED
+                            else ExperimentStatus.UNAVAILABLE
+                        )
+                        summary = "Required runtime instrumentation did not become ready"
+                        unavailable_reason = "; ".join(instrumentation.get("warnings", [])) or str(
+                            frida_status.get("reason") or "Frida instrumentation is unavailable"
+                        )
             else:
                 if frida_requested:
                     instrumentation = {
                         "requested": True,
                         "status": RuntimeObserverStatus.UNAVAILABLE.value,
                         "observers": obs_names,
-                        "warnings": ["Frida runtime is unavailable in this environment"],
+                        "warnings": [
+                            str(
+                                frida_status.get("reason")
+                                or "Required Frida observers are disabled or unavailable"
+                            )
+                        ],
                     }
-                status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
+                    status = ExperimentStatus.UNAVAILABLE
+                    summary = "Required runtime instrumentation is unavailable; experiment action was not executed"
+                    unavailable_reason = instrumentation["warnings"][0]
+                else:
+                    action_executed = True
+                    status, summary, unavailable_reason = self._collect(experiment_type, state, builder)
             error = None
         except subprocess.TimeoutExpired as exc:
             status = ExperimentStatus.TIMED_OUT
@@ -345,7 +458,7 @@ class DynamicLiteAnalyzer:
 
         new_ids = [item.evidence_id for item in builder.items[before_count:]]
         metadata: dict[str, Any] = {}
-        if experiment_type == ExperimentType.SYNTHETIC_SMS:
+        if experiment_type == ExperimentType.SYNTHETIC_SMS and action_executed:
             active_m = state.get("active_marker")
             if active_m:
                 metadata["synthetic_otp_marker"] = getattr(active_m, "value", str(active_m))
@@ -434,8 +547,11 @@ class DynamicLiteAnalyzer:
                 description = "Frida attached to an already-running application process for launch observation"
                 summary = "Application was already running; Frida attached without a second launch"
             else:
-                description = "Application launch observation used trusted Frida instrumentation"
-                summary = "Application launch observation was instrumented"
+                return (
+                    ExperimentStatus.FAILED,
+                    "Instrumentation reported ready without starting or attaching to the target",
+                    None,
+                )
             builder.add(
                 "app_launch",
                 description,

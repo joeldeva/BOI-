@@ -244,7 +244,7 @@ def test_ai_investigator_cannot_change_deterministic_score(
     result = response.json()["result"]
     assert result["ai_investigation"]["status"] == "completed"
     assert result["ai_investigation"]["hypotheses"][0]["supporting_evidence_ids"]
-    assert result["ai_investigation"]["experiment_plan"][0]["status"] == "UNSUPPORTED"
+    assert result["ai_investigation"]["experiment_plan"][0]["status"] == "SKIPPED"
     assert result["risk"]["overall_score"] >= 75
     assert response.json()["overall_score"] == result["risk"]["overall_score"]
     assert result["ai_investigation"]["controls_risk_score"] is False
@@ -256,6 +256,10 @@ def test_allowed_experiment_request_is_planned_when_supported(settings, monkeypa
         adb_emulator_serial="emulator-5554",
     )
     monkeypatch.setattr("fraudshield.deceptiscope.experiments.shutil.which", lambda value: "adb")
+    monkeypatch.setattr(
+        "fraudshield.deceptiscope.experiments.importlib.util.find_spec",
+        lambda name: object() if name == "frida" else None,
+    )
     planner = ExperimentPlanner(enabled)
     plan, errors = planner.plan_from_payload(
         {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,7 @@ from fraudshield.deceptiscope.investigation import (
     validate_hypothesis_payload,
 )
 from fraudshield.deceptiscope.pipeline import APKAnalysisPipeline
+from fraudshield.deceptiscope.runtime.runtime_models import RuntimeObserverStatus
 import pytest
 
 SYNTHETIC_OTP_MARKER = "TEST-OTP-749231"
@@ -38,6 +40,23 @@ class FakeDynamicAnalyzer(DynamicLiteAnalyzer):
         self.fail = fail or {}
         self.calls: list[tuple[str, ...]] = []
         self._snapshot_count = 0
+        self.frida_host.status = lambda **kwargs: {
+            "configured_enabled": True,
+            "host_dependency_available": True,
+            "frida_installed": True,
+        }
+        self.frida_host.observation_session = lambda package_name, observers: _ReadyFridaSession()
+
+    def status(self) -> dict[str, Any]:
+        enabled = self.settings.dynamic_analysis_enabled
+        adb_available = bool(shutil.which(self.settings.adb_path))
+        safe_target = self.settings.adb_emulator_serial.startswith("emulator-")
+        return {
+            "enabled": enabled,
+            "adb_available": adb_available,
+            "safe_target_shape": safe_target,
+            "runtime_ready": enabled and adb_available and safe_target and self.qemu == "1",
+        }
 
     def observe(
         self,
@@ -99,6 +118,21 @@ class FakeDynamicAnalyzer(DynamicLiteAnalyzer):
         if key[:2] == ("shell", "rm"):
             return ""
         raise RuntimeError(f"unexpected fake adb call: {key}")
+
+
+class _ReadyFridaSession:
+    status = RuntimeObserverStatus.COMPLETED
+    events: list[Any] = []
+    warnings: list[str] = []
+    spawned_pid = None
+    attached_existing = True
+    started_target = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        return None
 
 
 @pytest.fixture()
@@ -190,7 +224,15 @@ def _setup_pipeline(
     db.initialize()
     analyses = AnalysisRepository(db)
     indicators = IndicatorRepository(db)
-    pipeline_settings = settings.with_overrides(llm_provider="openai") if mock_ai else settings
+    pipeline_settings = (
+        settings.with_overrides(
+            llm_provider="openai",
+            llm_api_key="test-key",
+            llm_model="test-model",
+        )
+        if mock_ai
+        else settings
+    )
     pipeline = APKAnalysisPipeline(pipeline_settings, analyses, indicators)
 
     fake_dynamic = FakeDynamicAnalyzer(pipeline_settings, logcat=logcat, fail=fail_calls)

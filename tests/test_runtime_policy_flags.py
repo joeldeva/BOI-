@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import pytest
 
 from fraudshield.core.config import Settings
@@ -190,3 +191,31 @@ def test_no_fixed_otp_marker_in_system_status() -> None:
         assert "otp" not in key.lower()
         if isinstance(value, str):
             assert "otp" not in value.lower()
+
+
+def test_runtime_ready_requires_reachable_verified_emulator(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(
+        dynamic_analysis_enabled=True,
+        frida_runtime_enabled=False,
+        adb_emulator_serial="emulator-5554",
+    )
+    analyzer = DynamicLiteAnalyzer(settings)
+    calls: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        value = "device\n" if command[-1] == "get-state" else "1\n"
+        return SimpleNamespace(returncode=0, stdout=value)
+
+    monkeypatch.setattr("fraudshield.deceptiscope.dynamic.shutil.which", lambda path: "C:/sdk/adb.exe")
+    monkeypatch.setattr("fraudshield.deceptiscope.dynamic.subprocess.run", fake_run)
+
+    status = analyzer.status()
+
+    assert status["runtime_ready"] is True
+    assert status["readiness"]["checks"]["adb_device_reachable"] is True
+    assert status["readiness"]["checks"]["emulator_verified"] is True
+    assert calls == [
+        ["C:/sdk/adb.exe", "-s", "emulator-5554", "get-state"],
+        ["C:/sdk/adb.exe", "-s", "emulator-5554", "shell", "getprop", "ro.kernel.qemu"],
+    ]

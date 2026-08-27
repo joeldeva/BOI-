@@ -129,7 +129,7 @@ class APKAnalysisPipeline:
             if dynamic:
                 package_name = extraction.get("app", {}).get("package_name", "unknown")
                 dynamic_status = self.dynamic.status()
-                if dynamic_status.get("enabled") and dynamic_status.get("adb_available") and dynamic_status.get("safe_target_shape"):
+                if dynamic_status.get("runtime_ready"):
                     try:
                         dynamic_observations = self.dynamic.observe(
                             path,
@@ -224,9 +224,9 @@ class APKAnalysisPipeline:
             else:
                 extraction["coverage"]["dynamic"] = False
                 for plan_item in experiment_plan:
-                    if plan_item.get("status") == "PLANNED":
-                        plan_item["status"] = "SKIPPED"
-                        plan_item["unsupported_reason"] = "Dynamic analysis was not requested"
+                    plan_item["status"] = "SKIPPED"
+                    plan_item["supported"] = False
+                    plan_item["unsupported_reason"] = "Dynamic analysis was not requested"
 
             extraction["recovered_payloads"] = recovered_payloads_list
 

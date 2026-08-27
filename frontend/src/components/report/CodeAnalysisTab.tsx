@@ -41,7 +41,7 @@ export function CodeAnalysisTab({ result }: CodeAnalysisTabProps) {
                 {dna.banking_capabilities.map(cap => (
                   <tr key={cap} className="no-hover">
                     <td>{cap}</td>
-                    <td><StatusPillAuto value="CONFIRMED" /></td>
+                    <td><StatusPillAuto value="STATIC MATCH" /></td>
                   </tr>
                 ))}
               </tbody>

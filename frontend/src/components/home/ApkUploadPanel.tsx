@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Upload, X } from 'lucide-react';
 import type { CapabilitiesResponse } from '../../types/api';
+import { isRuntimeReady } from '../../utils/analysisTruth.mjs';
 
 interface ApkUploadPanelProps {
   isOpen: boolean;
@@ -33,10 +34,7 @@ export function ApkUploadPanel({
 
   if (!isOpen) return null;
 
-  const dynamicAvailable =
-    capabilities?.dynamic_lite.enabled &&
-    capabilities.dynamic_lite.adb_available &&
-    capabilities.dynamic_lite.emulator_serial_configured;
+  const dynamicAvailable = isRuntimeReady(capabilities);
 
   const handleFile = (f: File | undefined) => {
     if (!f) return;
