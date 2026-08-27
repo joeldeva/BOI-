@@ -375,7 +375,10 @@ class APKAnalysisPipeline:
             raise
         finally:
             if not self.settings.retain_uploads:
-                path.unlink(missing_ok=True)
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     @staticmethod
     def _indicator_candidates(extraction: dict[str, Any], risk: dict[str, Any]) -> list[dict[str, Any]]:

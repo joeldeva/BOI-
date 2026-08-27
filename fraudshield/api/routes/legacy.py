@@ -49,7 +49,10 @@ async def analyze_apk_legacy(
             )
     finally:
         if not services.settings.retain_uploads:
-            stored.path.unlink(missing_ok=True)
+            try:
+                stored.path.unlink(missing_ok=True)
+            except OSError:
+                pass
     result = analysis["result"]
     return {
         "analysis_id": analysis["id"],

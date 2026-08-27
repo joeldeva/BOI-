@@ -99,7 +99,10 @@ async def queue_apk_analysis(
             services.artifacts.delete(artifact.uri)
         raise
     finally:
-        stored.path.unlink(missing_ok=True)
+        try:
+            stored.path.unlink(missing_ok=True)
+        except OSError:
+            pass
     return _public_job(job)
 
 

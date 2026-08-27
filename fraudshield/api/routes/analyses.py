@@ -59,7 +59,10 @@ async def analyze_apk(
         # The pipeline performs the normal cleanup. This second, idempotent cleanup
         # also covers cancellation while a request is waiting for the semaphore.
         if not services.settings.retain_uploads:
-            stored.path.unlink(missing_ok=True)
+            try:
+                stored.path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 @router.get("/apk-analyses")
