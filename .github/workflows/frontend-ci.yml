@@ -64,7 +64,7 @@ jobs:
       - name: Build frontend container
         run: docker build --tag fraudshield-frontend:${{ github.sha }} frontend
       - name: Scan frontend container image (Trivy)
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.30.0
         with:
           image-ref: fraudshield-frontend:${{ github.sha }}
           format: "table"
