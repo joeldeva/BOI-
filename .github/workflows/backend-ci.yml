@@ -45,7 +45,7 @@ jobs:
         run: python -m build
       - name: Generate Backend CycloneDX SBOM
         run: |
-          cyclonedx-py environment --outfile dist/fraudshield-backend-sbom.cdx.json
+          python -m cyclonedx_py environment --output-file dist/fraudshield-backend-sbom.cdx.json
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -79,13 +79,8 @@ jobs:
       - name: Build backend container
         run: docker build --tag fraudshield:${{ github.sha }} .
       - name: Scan backend container image (Trivy)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: fraudshield:${{ github.sha }}
-          format: "table"
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: "CRITICAL,HIGH"
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed fraudshield:${{ github.sha }}
       - name: Lint Helm chart (default)
         run: helm lint deploy/helm/fraudshield
       - name: Lint Helm chart (production example)

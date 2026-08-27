@@ -15,7 +15,6 @@ concurrency:
 
 jobs:
   secret-scan:
-    name: Secret Scanning (Gitleaks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -30,14 +29,15 @@ jobs:
           GITLEAKS_CONFIG: .gitleaks.toml
 
   sast-analysis:
-    name: Static Application Security Testing (Semgrep)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    container:
-      image: semgrep/semgrep:latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: Run Semgrep SAST scan
-        run: |
-          semgrep scan --config "p/python" --config "p/typescript" --config "p/owasp-top-ten" --error --exclude "tests" --exclude "frontend/tests"
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/python
+            p/typescript
+            p/owasp-top-ten
