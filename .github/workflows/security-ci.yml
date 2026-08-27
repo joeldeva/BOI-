@@ -15,7 +15,6 @@ concurrency:
 
 jobs:
   secret-scan:
-    name: Secret Scanning (Gitleaks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -30,7 +29,6 @@ jobs:
           GITLEAKS_CONFIG: .gitleaks.toml
 
   sast-analysis:
-    name: Static Application Security Testing (Semgrep)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
