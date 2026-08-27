@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Header } from './components/common/Header';
+import { TopNavigation, type AppPage } from './components/common/TopNavigation';
 import { ErrorBanner } from './components/common/ErrorBanner';
-import { CommandCenter } from './components/dashboard/CommandCenter';
-import { ApkUploadCard } from './components/deceptiscope/ApkUploadCard';
-import { ApkAnalysisView } from './components/deceptiscope/ApkAnalysisView';
-import { IndicatorStore } from './components/indicators/IndicatorStore';
-import { SettingsModal } from './components/settings/SettingsModal';
+import { FraudSearchHero } from './components/home/FraudSearchHero';
+import { RecentInvestigationsTable } from './components/home/RecentInvestigationsTable';
+import { ApkUploadPanel } from './components/home/ApkUploadPanel';
+import { InvestigationReportPage } from './components/report/InvestigationReportPage';
+import { SearchPage } from './components/search/SearchPage';
+import { CampaignPage } from './components/campaigns/CampaignPage';
 import {
   apiService,
   ApiError,
@@ -14,9 +15,7 @@ import {
   requireJobResourceId,
 } from './services/api';
 import type {
-  HealthResponse,
   CapabilitiesResponse,
-  DashboardSummaryResponse,
   ApkAnalysisRecord,
   JobRecord,
 } from './types/api';
@@ -25,33 +24,31 @@ const asError = (value: unknown): Error =>
   value instanceof Error ? value : new Error(typeof value === 'string' ? value : 'Unexpected error');
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [page, setPage] = useState<AppPage>('home');
   const [capabilities, setCapabilities] = useState<CapabilitiesResponse | null>(null);
-  const [summary, setSummary] = useState<DashboardSummaryResponse | null>(null);
   const [recentApks, setRecentApks] = useState<ApkAnalysisRecord[]>([]);
   const [selectedApk, setSelectedApk] = useState<ApkAnalysisRecord | null>(null);
+  const [loadingApks, setLoadingApks] = useState(true);
   const [isUploadingApk, setIsUploadingApk] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [globalError, setGlobalError] = useState<Error | string | null>(null);
   const [apkJob, setApkJob] = useState<JobRecord | null>(null);
   const apkPoll = useRef<AbortController | null>(null);
 
   const fetchDashboardData = useCallback(async () => {
+    setLoadingApks(true);
     const results = await Promise.allSettled([
-      apiService.getHealth(),
       apiService.getCapabilities(),
-      apiService.getDashboardSummary(),
-      apiService.listApkAnalyses(10),
+      apiService.listApkAnalyses(20),
     ] as const);
-    const [healthResult, capabilitiesResult, summaryResult, apksResult] = results;
-    if (healthResult.status === 'fulfilled') setHealth(healthResult.value);
+
+    const [capabilitiesResult, apksResult] = results;
     if (capabilitiesResult.status === 'fulfilled') setCapabilities(capabilitiesResult.value);
-    if (summaryResult.status === 'fulfilled') setSummary(summaryResult.value);
     if (apksResult.status === 'fulfilled') {
       setRecentApks(apksResult.value.items);
-      setSelectedApk((current) => current ?? apksResult.value.items[0] ?? null);
     }
+    setLoadingApks(false);
+
     const failure = results.find((result) => result.status === 'rejected');
     if (failure?.status === 'rejected') setGlobalError(asError(failure.reason));
   }, []);
@@ -67,27 +64,51 @@ export default function App() {
     setApkJob(null);
     apkPoll.current?.abort();
     apkPoll.current = new AbortController();
+
+    // Ensure capabilities are loaded before deciding execution mode
+    let currentCaps = capabilities;
+    if (!currentCaps) {
+      try {
+        currentCaps = await apiService.getCapabilities();
+        setCapabilities(currentCaps);
+      } catch {
+        // Fall back to existing behavior if capability check fails
+      }
+    }
+
     try {
-      const queued = await apiService.submitApkJob({
-        file,
-        category: category as 'banking' | 'finance' | 'utility' | 'other',
-        dynamic,
-        idempotencyKey: generateIdempotencyKey(),
-      });
-      setApkJob(queued);
-      const completed = queued.status === 'completed'
-        ? queued
-        : await pollJob(queued.id, setApkJob, 10 * 60_000, apkPoll.current.signal);
-      if (completed.status === 'failed') {
-        throw new ApiError(completed.error_message || 'APK analysis job failed', completed.error_code || 'job_failed', 500);
+      if (currentCaps?.inline_analysis) {
+        // INLINE MODE: Analyze APK immediately via POST /api/v1/apk-analyses
+        const result = await apiService.analyzeApkInline(
+          { file, category, dynamic },
+          apkPoll.current.signal
+        );
+        setSelectedApk(result);
+        setPage('report');
+        await fetchDashboardData();
+      } else {
+        // DURABLE JOB MODE: Create job and poll
+        const queued = await apiService.submitApkJob({
+          file,
+          category: category as 'banking' | 'finance' | 'utility' | 'other',
+          dynamic,
+          idempotencyKey: generateIdempotencyKey(),
+        });
+        setApkJob(queued);
+        const completed = queued.status === 'completed'
+          ? queued
+          : await pollJob(queued.id, setApkJob, 10 * 60_000, apkPoll.current.signal);
+        if (completed.status === 'failed') {
+          throw new ApiError(completed.error_message || 'APK analysis job failed', completed.error_code || 'job_failed', 500);
+        }
+        if (completed.status === 'cancelled') {
+          throw new ApiError('APK analysis job was cancelled', 'job_cancelled', 409);
+        }
+        const result = await apiService.getApkAnalysis(requireJobResourceId(completed, 'apk_analysis'));
+        setSelectedApk(result);
+        setPage('report');
+        await fetchDashboardData();
       }
-      if (completed.status === 'cancelled') {
-        throw new ApiError('APK analysis job was cancelled', 'job_cancelled', 409);
-      }
-      const result = await apiService.getApkAnalysis(requireJobResourceId(completed, 'apk_analysis'));
-      setSelectedApk(result);
-      setActiveTab('deceptiscope');
-      await fetchDashboardData();
     } catch (error) {
       setGlobalError(asError(error));
       throw error;
@@ -96,74 +117,97 @@ export default function App() {
     }
   };
 
-  const handleDownloadPdf = async (apkId: string) => {
+  const handleOpenReport = async (id: string) => {
     try {
-      const blob = await apiService.downloadApkReportPdf(apkId);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `deceptiscope-apk-report-${apkId}.pdf`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      setGlobalError(asError(error));
+      const record = await apiService.getApkAnalysis(id);
+      setSelectedApk(record);
+      setPage('report');
+      window.scrollTo(0, 0);
+    } catch (err) {
+      setGlobalError(asError(err));
+    }
+  };
+
+  const handleSearch = (query: string) => {
+    const matched = recentApks.find(a =>
+      a.file_name.toLowerCase().includes(query.toLowerCase()) ||
+      a.package_name?.toLowerCase().includes(query.toLowerCase()) ||
+      a.app_name?.toLowerCase().includes(query.toLowerCase()) ||
+      a.sha256.toLowerCase().includes(query.toLowerCase())
+    );
+    if (matched) {
+      void handleOpenReport(matched.id);
+    } else {
+      setPage('search');
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      <Header
-        health={health}
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+    <div>
+      <TopNavigation
+        page={page}
+        onNavigate={(p) => { setPage(p); window.scrollTo(0, 0); }}
+        capabilities={capabilities}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {globalError && <ErrorBanner error={globalError} onDismiss={() => setGlobalError(null)} />}
+      {globalError && (
+        <div style={{ width: 'min(1180px, calc(100% - 28px))', margin: '14px auto 0' }}>
+          <ErrorBanner error={globalError} onDismiss={() => setGlobalError(null)} />
+        </div>
+      )}
 
-        {activeTab === 'dashboard' && (
-          <CommandCenter
-            health={health}
-            summary={summary}
+      {page === 'home' && (
+        <>
+          <FraudSearchHero
+            onSearch={handleSearch}
+            onOpenUpload={() => setIsUploadModalOpen(true)}
             capabilities={capabilities}
-            recentApks={recentApks}
-            onSelectApk={(id) => {
-              void apiService.getApkAnalysis(id).then((record) => {
-                setSelectedApk(record);
-                setActiveTab('deceptiscope');
-              }).catch((error: unknown) => setGlobalError(asError(error)));
-            }}
-            onNavigateTab={setActiveTab}
           />
-        )}
-
-        {activeTab === 'deceptiscope' && (
-          <div className="space-y-6">
-            <ApkUploadCard
-              onUpload={handleUploadApk}
-              isUploading={isUploadingApk}
-              capabilities={capabilities}
-              jobStatus={apkJob?.status ?? null}
-              jobId={apkJob?.id ?? null}
-              jobError={apkJob?.error_message ?? null}
+          <main className="main">
+            <RecentInvestigationsTable
+              analyses={recentApks}
+              loading={loadingApks}
+              onOpen={handleOpenReport}
             />
-            {selectedApk && (
-              <ApkAnalysisView analysis={selectedApk} onDownloadPdf={handleDownloadPdf} />
-            )}
-          </div>
-        )}
+          </main>
+        </>
+      )}
 
-        {activeTab === 'indicators' && <IndicatorStore onError={setGlobalError} />}
-      </main>
+      {page === 'investigations' && (
+        <main className="main">
+          <RecentInvestigationsTable
+            analyses={recentApks}
+            loading={loadingApks}
+            onOpen={handleOpenReport}
+          />
+        </main>
+      )}
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+      {page === 'search' && <SearchPage />}
+
+      {page === 'campaigns' && (
+        <CampaignPage
+          recentApks={recentApks}
+          onOpenReport={handleOpenReport}
+        />
+      )}
+
+      {page === 'report' && selectedApk && (
+        <InvestigationReportPage
+          analysis={selectedApk}
+          onBack={() => setPage('investigations')}
+        />
+      )}
+
+      <ApkUploadPanel
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onUpload={handleUploadApk}
+        isUploading={isUploadingApk}
         capabilities={capabilities}
-        onRefreshCapabilities={() => void fetchDashboardData()}
+        jobStatus={apkJob?.status ?? null}
+        jobId={apkJob?.id ?? null}
+        jobError={apkJob?.error_message ?? null}
       />
     </div>
   );

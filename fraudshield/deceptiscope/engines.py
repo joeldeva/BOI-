@@ -24,6 +24,7 @@ Safety invariants:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import importlib.util
 import logging
 import math
@@ -514,7 +515,14 @@ class QuarkAdapter:
             or list(settings.quark_rules_dir.rglob("*.json"))
         )[:settings.quark_max_rules]
 
+        deadline = time.monotonic() + min(15, settings.engine_timeout_seconds)
         for rule_path in rules:
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "Quark rule execution reached bounded timeout deadline (%ds)",
+                    min(15, settings.engine_timeout_seconds),
+                )
+                break
             rule = RuleObject(str(rule_path))
             try:
                 analyzer.run(rule)
@@ -781,17 +789,44 @@ class EngineCoordinator:
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         """Execute an adapter with timing and failure isolation."""
         started = time.perf_counter()
+        timeout_seconds = max(1, int(self.settings.engine_timeout_seconds))
         try:
-            summary, findings = adapter.analyze(
-                path, settings=self.settings, sha256=sha256, extraction=extraction,
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(
+                    adapter.analyze,
+                    path,
+                    settings=self.settings,
+                    sha256=sha256,
+                    extraction=extraction,
+                )
+                summary, findings = future.result(timeout=timeout_seconds)
+                return (
+                    _engine_status(
+                        adapter.engine_id,
+                        adapter.label,
+                        "completed",
+                        duration_ms=(time.perf_counter() - started) * 1000,
+                        summary=summary,
+                        privacy=adapter.privacy,
+                    ),
+                    findings,
+                )
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                "Optional APK engine %s timed out after %ds",
+                adapter.engine_id,
+                timeout_seconds,
             )
             return (
                 _engine_status(
-                    adapter.engine_id, adapter.label, "completed",
+                    adapter.engine_id,
+                    adapter.label,
+                    "timeout",
                     duration_ms=(time.perf_counter() - started) * 1000,
-                    summary=summary, privacy=adapter.privacy,
+                    error=f"Engine timed out after {timeout_seconds}s; analysis continued",
+                    privacy=adapter.privacy,
                 ),
-                findings,
+                [],
             )
         except Exception as exc:
             logger.warning("Optional APK engine %s failed: %s", adapter.engine_id, type(exc).__name__)

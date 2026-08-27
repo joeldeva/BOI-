@@ -115,6 +115,17 @@ export const apiService = {
     return this.fetch('/api/v1/indicators', { method: 'POST', body: JSON.stringify(payload) });
   },
 
+  analyzeApkInline(
+    params: { file: File; category?: string; dynamic?: boolean },
+    signal?: AbortSignal
+  ): Promise<ApkAnalysisRecord> {
+    const body = new FormData();
+    body.append('file', params.file);
+    body.append('category', params.category ?? 'banking');
+    body.append('dynamic', String(params.dynamic ?? false));
+    return this.fetch('/api/v1/apk-analyses', { method: 'POST', body, signal });
+  },
+
   submitApkJob(params: SubmitApkJobParams): Promise<JobRecord> {
     const body = new FormData();
     body.append('file', params.file);

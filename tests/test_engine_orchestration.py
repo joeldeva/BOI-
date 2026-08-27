@@ -484,3 +484,30 @@ def test_command_safety_no_shell_true(settings: Settings) -> None:
     assert isinstance(call_args[0], list)
     assert call_args[0][0] == "/usr/bin/apksigner"
     assert call_kwargs.get("shell") is not True
+
+
+# ---------------------------------------------------------------------------
+# Test 18: Engine Timeout Isolation
+# ---------------------------------------------------------------------------
+def test_run_guarded_timeout_isolation(settings: Settings, tmp_path: Path) -> None:
+    """A hanging engine adapter times out without blocking the overall orchestrator."""
+    import time
+    coordinator = EngineCoordinator(settings.with_overrides(engine_timeout_seconds=1))
+
+    class HangingAdapter:
+        engine_id = "hanging_engine"
+        label = "Hanging Engine"
+        privacy = "local-only"
+
+        def analyze(self, path: Path, **kwargs: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+            time.sleep(3)
+            return {"status": "never_reached"}, []
+
+    target = tmp_path / "dummy.apk"
+    target.write_bytes(b"dummy")
+
+    status, findings = coordinator.run_guarded(HangingAdapter(), target, "sha", {})
+    assert status["status"] == "timeout"
+    assert "timed out" in status["error"]
+    assert findings == []
+
