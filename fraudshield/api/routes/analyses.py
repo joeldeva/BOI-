@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 from fraudshield.api.dependencies import container
@@ -14,6 +16,7 @@ from fraudshield.deceptiscope.report import build_analysis_pdf
 from fraudshield.deceptiscope.validator import store_apk_upload
 from fraudshield.services.container import ServiceContainer
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["DeceptiScope"], dependencies=[Depends(require_api_key)])
 VALID_CATEGORIES = {"banking", "finance", "utility", "other"}
@@ -44,17 +47,28 @@ async def analyze_apk(
 ) -> dict:
     normalized_category = _category(category)
     stored = await store_apk_upload(file, services.settings)
+    timeout_seconds = max(30.0, float(services.settings.engine_timeout_seconds) * 2)
     try:
         async with request.app.state.apk_analysis_semaphore:
-            return await run_in_threadpool(
-                services.apk_pipeline.analyze_uploaded,
-                path=stored.path,
-                original_name=stored.original_name,
-                sha256=stored.sha256,
-                size_bytes=stored.size_bytes,
-                category=normalized_category,
-                dynamic=dynamic,
-            )
+            try:
+                return await asyncio.wait_for(
+                    run_in_threadpool(
+                        services.apk_pipeline.analyze_uploaded,
+                        path=stored.path,
+                        original_name=stored.original_name,
+                        sha256=stored.sha256,
+                        size_bytes=stored.size_bytes,
+                        category=normalized_category,
+                        dynamic=dynamic,
+                    ),
+                    timeout=timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                logger.error("Inline APK analysis timed out after %.1fs for %s", timeout_seconds, stored.sha256[:12])
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="APK analysis timed out",
+                )
     finally:
         # The pipeline performs the normal cleanup. This second, idempotent cleanup
         # also covers cancellation while a request is waiting for the semaphore.
