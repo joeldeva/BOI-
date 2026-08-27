@@ -22,7 +22,8 @@ COPY fraudshield ./fraudshield
 
 RUN "$BUILD_VIRTUAL_ENV/bin/python" -m build --wheel --no-isolation --outdir /build/dist \
     && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir $(ls /build/dist/fraudshield_backend-*.whl)[production,analysis] \
-    && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir --upgrade "pip>=25.0" "setuptools>=78.1.1" "msgpack>=1.2.1"
+    && "$VIRTUAL_ENV/bin/python" -m pip install --no-cache-dir --upgrade "msgpack>=1.2.1" \
+    && "$VIRTUAL_ENV/bin/python" -m pip uninstall -y setuptools pip wheel || true
 
 
 
